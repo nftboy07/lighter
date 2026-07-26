@@ -259,16 +259,26 @@ class ExecutionEngine:
 
     def send_raw_transaction_safe(self, raw_tx) -> bytes:
         """Submit transaction privately via Flashbots/private RPC if configured, otherwise fall back to public RPC."""
-        flash_rpc = os.getenv("FLASHBOTS_RPC")
-        if self.use_flashbots and flash_rpc:
+        private_rpc = os.getenv("PRIVATE_RPC_URL") or os.getenv("FLASHBOTS_RPC")
+        if (self.use_flashbots or os.getenv("USE_PRIVATE_RPC", "false").lower() == "true") and private_rpc:
             try:
-                masked_rpc = flash_rpc[:4] + "..." + flash_rpc[-4:] if len(flash_rpc) > 8 else "***"
+                masked_rpc = private_rpc[:4] + "..." + private_rpc[-4:] if len(private_rpc) > 8 else "***"
                 logger.info(f"Routing swap transaction privately via: {masked_rpc}...")
-                private_w3 = Web3(Web3.HTTPProvider(flash_rpc))
+                private_w3 = Web3(Web3.HTTPProvider(private_rpc))
                 return private_w3.eth.send_raw_transaction(raw_tx)
             except Exception as e:
                 logger.warning(f"Private RPC submission failed: {e}. Falling back to public RPC...")
         return self.w3.eth.send_raw_transaction(raw_tx)
+
+    def escalate_transaction_priority(self, base_gas_price: Dict, multiplier: float = 1.5) -> Dict[str, int]:
+        """Escalate EIP-1559 gas fees to beat competing mempool transactions."""
+        escalated_max_priority = int(base_gas_price.get("maxPriorityFeePerGas", 2000000000) * multiplier)
+        escalated_max_fee = int(base_gas_price.get("maxFeePerGas", 10000000000) * multiplier)
+        return {
+            "maxPriorityFeePerGas": escalated_max_priority,
+            "maxFeePerGas": escalated_max_fee,
+            "gasLimit": base_gas_price.get("gasLimit", 300000)
+        }
 
     async def execute_swap(
         self,

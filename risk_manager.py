@@ -118,6 +118,47 @@ class RiskManager:
         position_size = wallet_balance_eth * kelly_f
         return min(position_size, self.max_position_eth)
 
+    def calculate_kelly_from_db(
+        self,
+        db_path: str,
+        wallet_balance_eth: float,
+        fallback_eth: float = 0.001
+    ) -> float:
+        """
+        Calculate dynamic Kelly sizing using historical trade results from SQLite database.
+        Returns: ETH position size
+        """
+        import sqlite3
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT action, eth_amount FROM trades WHERE status='success'")
+            rows = cursor.fetchall()
+            conn.close()
+
+            if not rows or len(rows) < 5:
+                return fallback_eth
+
+            wins = [r for r in rows if r[0] in ('sell', 'TP_SELL', 'EXIT_WIN') and r[1] > 0]
+            losses = [r for r in rows if r[0] in ('RUG_ZERO_LIQ', 'STOP_LOSS', 'EXIT_LOSS')]
+
+            total = len(wins) + len(losses)
+            if total == 0:
+                return fallback_eth
+
+            win_rate = len(wins) / total
+            avg_win = (sum(w[1] for w in wins) / len(wins)) if wins else 0.002
+            avg_loss = (sum(l[1] for l in losses) / len(losses)) if losses else 0.001
+
+            return self.calculate_kelly_criterion_size(
+                wallet_balance_eth=wallet_balance_eth,
+                win_rate=win_rate,
+                avg_win_percent=avg_win,
+                avg_loss_percent=avg_loss if avg_loss > 0 else 0.001
+            )
+        except Exception:
+            return fallback_eth
+
     # =========== POSITION LIMITS ===========
     def can_open_position(self, token_address: str) -> Tuple[bool, str]:
         """Check if we can open a new position."""

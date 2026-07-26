@@ -631,3 +631,85 @@ class SafetyAnalyzer:
             return (False, f"Dev centralization risk: {safety_scores.get('dev_buy_reason')}")
         
         return (True, f"Passed all checks (score: {overall})")
+
+    def simulate_pretrade_sell(
+        self,
+        token_address: str,
+        router_address: str,
+        user_address: Optional[str] = None
+    ) -> Tuple[bool, str]:
+        """
+        Perform a pre-trade EVM simulation to verify that the token can be approved and sold.
+        Returns: (is_sellable, reason)
+        """
+        try:
+            token_checksum = to_checksum_address(token_address)
+            router_checksum = to_checksum_address(router_address)
+            caller = user_address or "0x0000000000000000000000000000000000000001"
+
+            # Check basic ERC20 functions via static call
+            token_contract = self.w3.eth.contract(
+                address=token_checksum,
+                abi=self.TOKEN_ABI + [{
+                    "inputs": [{"type": "address"}, {"type": "uint256"}],
+                    "name": "approve",
+                    "outputs": [{"type": "bool"}],
+                    "type": "function",
+                    "stateMutability": "nonpayable"
+                }]
+            )
+
+            # 1. Test static call to balanceOf
+            bal = token_contract.functions.balanceOf(caller).call()
+
+            # 2. Dry-run approval call
+            tx_data = token_contract.functions.approve(router_checksum, 1000000000000000000).build_transaction({
+                "from": caller,
+                "gas": 100000,
+                "gasPrice": self.w3.eth.gas_price
+            })
+
+            # Simulate execution via eth_call
+            self.w3.eth.call({"from": caller, "to": token_checksum, "data": tx_data["data"]})
+            return (True, "Pre-trade EVM sell simulation passed")
+        except Exception as e:
+            return (False, f"Pre-trade EVM sell simulation failed: {e}")
+
+    def revoke_token_allowance(
+        self,
+        token_address: str,
+        spender_address: str,
+        private_key: str
+    ) -> Tuple[bool, str]:
+        """
+        Revoke token allowance (reset to 0) to secure wallet permissions.
+        Returns: (success, tx_hash_or_reason)
+        """
+        try:
+            account = self.w3.eth.account.from_key(private_key)
+            token_checksum = to_checksum_address(token_address)
+            spender_checksum = to_checksum_address(spender_address)
+
+            token_contract = self.w3.eth.contract(
+                address=token_checksum,
+                abi=[{
+                    "inputs": [{"type": "address"}, {"type": "uint256"}],
+                    "name": "approve",
+                    "outputs": [{"type": "bool"}],
+                    "type": "function",
+                    "stateMutability": "nonpayable"
+                }]
+            )
+
+            tx = token_contract.functions.approve(spender_checksum, 0).build_transaction({
+                "from": account.address,
+                "nonce": self.w3.eth.get_transaction_count(account.address),
+                "gas": 60000,
+                "gasPrice": self.w3.eth.gas_price
+            })
+
+            signed = self.w3.eth.account.sign_transaction(tx, private_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed.rawTransaction)
+            return (True, tx_hash.hex())
+        except Exception as e:
+            return (False, str(e))

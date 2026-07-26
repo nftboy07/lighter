@@ -224,6 +224,31 @@ class MultiSourceDetector:
         }
 
 
+class SocialSignalParser:
+    """Parses social messages/casts for contract addresses and launch signals."""
+
+    @staticmethod
+    def extract_contract_addresses(text: str) -> List[str]:
+        """Extract Ethereum checksummed contract addresses from text."""
+        import re
+        pattern = r"0x[a-fA-F0-9]{40}"
+        matches = re.findall(pattern, text)
+        extracted = []
+        for m in matches:
+            try:
+                extracted.append(to_checksum_address(m))
+            except Exception:
+                pass
+        return list(set(extracted))
+
+    @staticmethod
+    def contains_alpha_keywords(text: str) -> bool:
+        """Check if social post text contains high-intent alpha keywords."""
+        keywords = ["launch", "live on base", "pool created", "fair launch", "o1.exchange", "cc0.company", "b20"]
+        lowered = text.lower()
+        return any(k in lowered for k in keywords)
+
+
 if __name__ == '__main__':
     """Test the detection engine."""
     logging.basicConfig(level=logging.INFO)
