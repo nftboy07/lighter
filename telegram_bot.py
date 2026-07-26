@@ -216,6 +216,11 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /pnl /spent /value /summary /stats /profit <token>
 /history /recent [n] /lastbuy /open
 /tx <hash>         /export /csv
+/backtest          /ab
+
+**Limit Orders (Phase 11)**
+/limitbuy <token> <price_eth> <amount_eth>
+/limits            /cancellimit <id>
 
 **More**
 /balance /price /pools /tx /buy /sell /blacklist /addblack /remblack /liq /simulate /safety /perftoken /pools /activation /rpc /gas /config /refresh
@@ -387,6 +392,89 @@ async def blacklist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     token = args[0]
     # Note: this would need to be shared with main process; for now echo
     await update.message.reply_text(f"🖤 Blacklist request for {token} (add to main bot BLACKLIST set manually or extend wiring).")
+
+async def limitbuy_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Upgrade #50: conditional buy — fires when price drops to/below target
+    args = context.args or []
+    if len(args) < 3:
+        await update.message.reply_text(
+            "Usage: /limitbuy <token> <target_price_eth> <amount_eth>\n"
+            "Example: /limitbuy 0xB20... 0.0000005 0.005\n"
+            "Buys when token price (ETH per token) drops to/below target.")
+        return
+    try:
+        token = args[0]
+        target = float(args[1])
+        amount = float(args[2])
+        import phase11_upgrades as p11
+        order_id = await asyncio.to_thread(p11.add_limit_order, token, target, amount)
+        await update.message.reply_text(
+            f"🎯 Limit order #{order_id} created:\n"
+            f"Buy {amount} ETH of {token[:14]}... when price ≤ {target:.10f} ETH.\n"
+            f"Checked every ~20s while the bot runs. /limits to view, /cancellimit {order_id} to cancel.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Limit order error: {e}")
+
+async def limits_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Upgrade #50: list limit orders
+    try:
+        import phase11_upgrades as p11
+        orders = await asyncio.to_thread(p11.list_limit_orders, "all")
+        if not orders:
+            await update.message.reply_text("No limit orders yet. Create one: /limitbuy <token> <price> <amount>")
+            return
+        msg = "🎯 Limit Orders (latest 25):\n\n"
+        for o in orders:
+            msg += (f"#{o['id']} [{o['status']}] {o['token'][:14]}...\n"
+                    f"  target ≤ {o['target_price_eth']:.10f} ETH, size {o['amount_eth']} ETH\n")
+        await update.message.reply_text(msg)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
+async def cancellimit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Upgrade #50: cancel an open limit order
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("Usage: /cancellimit <id>")
+        return
+    try:
+        import phase11_upgrades as p11
+        ok = await asyncio.to_thread(p11.cancel_limit_order, int(args[0]))
+        await update.message.reply_text(f"{'✅ Cancelled' if ok else '⚠️ Not found or not open'}: order #{args[0]}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
+async def backtest_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Upgrade #90: run the backtest engine over recorded trades
+    try:
+        import backtest_engine
+        strategies = await asyncio.to_thread(backtest_engine.run_backtest)
+        msg = "📈 Backtest (completed round-trips):\n\n"
+        any_trades = False
+        for name, s in strategies.items():
+            if s["trades"] == 0:
+                continue
+            any_trades = True
+            msg += (f"<b>{name}</b>: {s['trades']} trades, "
+                    f"PnL {s['total_pnl_eth']} ETH, win {s['win_rate']}%\n")
+        if not any_trades:
+            msg = "📈 No completed buy→sell round-trips recorded yet — nothing to backtest."
+        await update.message.reply_text(msg, parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Backtest error: {e}")
+
+async def ab_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Upgrade #91: A/B variant performance summary
+    try:
+        import phase11_upgrades as p11
+        s = await asyncio.to_thread(p11.ab_summary)
+        enabled = p11.ab_enabled()
+        msg = (f"🧪 A/B Testing ({'ON' if enabled else 'OFF — set AB_TEST_ENABLED=true'}):\n\n"
+               f"Variant A: {s['A']['trades']} trades, PnL {s['A']['pnl']:.6f} ETH\n"
+               f"Variant B: {s['B']['trades']} trades, PnL {s['B']['pnl']:.6f} ETH")
+        await update.message.reply_text(msg)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
 
 async def buy_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Manual buy — force=True skips pool/liq/MEV guards and reports every step to Telegram
@@ -1813,6 +1901,11 @@ def _build_application(token: str) -> Application:
     app.add_handler(CommandHandler("positions", positions_cmd))
     app.add_handler(CommandHandler("blacklist", blacklist_cmd))
     app.add_handler(CommandHandler("buy", buy_cmd))
+    app.add_handler(CommandHandler("limitbuy", limitbuy_cmd))
+    app.add_handler(CommandHandler("limits", limits_cmd))
+    app.add_handler(CommandHandler("cancellimit", cancellimit_cmd))
+    app.add_handler(CommandHandler("backtest", backtest_cmd))
+    app.add_handler(CommandHandler("ab", ab_cmd))
     app.add_handler(CommandHandler("balance", balance_cmd))
     app.add_handler(CommandHandler("ethbalance", ethbalance_cmd))
     app.add_handler(CommandHandler("eth", ethbalance_cmd))

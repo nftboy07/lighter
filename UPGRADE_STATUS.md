@@ -1,7 +1,19 @@
 # B20 Bot - 100+ Upgrades Implementation Status
 
-**Last Updated:** July 8, 2026  
-**Status:** Phase 1-4 Complete ✅ | Phase 5-7 In Progress 🔄
+**Last Updated:** July 27, 2026  
+**Status:** Phase 1-11 Complete ✅
+
+## ✅ Phase 11 (July 27, 2026) — Final Roadmap Items
+
+- **#73**: Max gas spend cap per trade (`MAX_GAS_ETH_PER_TRADE`, worst-case gas × maxFee check before send)
+- **#50**: Limit orders / conditional buys (`/limitbuy`, `/limits`, `/cancellimit` — SQLite-backed, checked every 20s)
+- **#56**: Chunked buys — entries ≥ `CHUNKED_BUY_MIN_TOTAL` split into `CHUNK_COUNT` parts spaced `CHUNK_DELAY_SECS` apart
+- **#58**: Bot competition avoidance — skips snipes when known sniper wallets race the same token in the mempool; auto-learns fast buyers into `bot_wallets` table
+- **#32**: Large early sell watchdog — alerts with instant sell buttons if price collapses ≥ `EARLY_SELL_DROP_PCT`% within `EARLY_SELL_WINDOW_SECS` of entry
+- **#90**: Backtest engine (`backtest_engine.py`, `/backtest`) — evaluates actual vs hold-all vs TP-ladder vs stop-loss over recorded round-trips
+- **#91**: A/B testing — deterministic per-token variant tagging (`AB_TEST_ENABLED`, `/ab` summary)
+
+New module: `phase11_upgrades.py` (+ `tests/test_phase11_upgrades.py`, 12 tests).
 
 ---
 

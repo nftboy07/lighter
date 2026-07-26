@@ -81,6 +81,15 @@ except ImportError:
     MEMPOOL_AVAILABLE = False
     print("Mempool modules not available (optional)")
 
+# Phase 11 upgrades: gas cap (#73), limit orders (#50), chunked buys (#56),
+# bot competition avoidance (#58), early-sell watchdog (#32), A/B tagging (#91)
+try:
+    import phase11_upgrades as p11
+    PHASE11_AVAILABLE = True
+except ImportError:
+    PHASE11_AVAILABLE = False
+    print("phase11_upgrades not available (optional)")
+
 import requests
 
 # ethbot-style interactive Telegram bot
@@ -2295,6 +2304,18 @@ def attempt_buy(w3: Web3, token: str, fee: int, amount_eth: float, cfg: dict,
                 tg_send(f"🚫 <b>Buy Skipped</b>: Token <code>{token}</code> has active sandwich/front-run activity in the mempool.")
                 return None
 
+    # Upgrade #58: don't race known sniper bots on the same token
+    if PHASE11_AVAILABLE and mempool_monitor_instance and not force:
+        try:
+            skip_comp, comp_why = p11.should_skip_for_competition(
+                mempool_monitor_instance, token, POOL_DETECTION_TIMES.get(token, 0.0))
+            if skip_comp:
+                print(f"[BOTDETECT] Skipping {token}: {comp_why}")
+                tg_send(f"🤖 <b>Buy Skipped (bot competition)</b> for <code>{token}</code>:\n{comp_why}")
+                return None
+        except Exception as bce:
+            print(f"[BOTDETECT] check error: {bce}")
+
     print(f"Pool {pool} liquidity: {liq}. Proceeding with buy attempt via {dex_type}. (force={force})")
 
     amount_in = w3.to_wei(amount_eth, "ether")
@@ -2339,6 +2360,15 @@ def attempt_buy(w3: Web3, token: str, fee: int, amount_eth: float, cfg: dict,
             tx["nonce"] = w3.eth.get_transaction_count(sender)
             gas = estimate_gas_with_buffer(w3, tx, buffer=1.6 + attempt * 0.3)
             tx["gas"] = gas
+
+            # Upgrade #73: hard cap on worst-case gas spend per trade
+            if PHASE11_AVAILABLE:
+                ok_gas, gas_cost_eth, gas_cap = p11.check_gas_cap(gas, max_fee)
+                if not ok_gas:
+                    print(f"[GAS CAP] Worst-case gas {gas_cost_eth:.6f} ETH > cap {gas_cap} ETH")
+                    tg_send(f"⛽ <b>Gas cap hit</b> for <code>{token}</code>: worst-case {gas_cost_eth:.6f} ETH > cap {gas_cap} ETH.\n"
+                            f"<i>Buy aborted. Raise MAX_GAS_ETH_PER_TRADE in .env to override.</i>")
+                    return None
 
             print(f"Buy attempt {attempt+1}: amount={amount_eth} ETH, gas={gas}, maxFee={max_fee}, priority={priority_fee}")
 
@@ -2437,6 +2467,19 @@ def attempt_buy(w3: Web3, token: str, fee: int, amount_eth: float, cfg: dict,
                             print(f"[BUY] fallback balanceOf error: {fe}")
 
                     log_trade(token, "buy", amount_eth, tx_hash.hex(), "success", token_amount=received_tokens)
+
+                    # Upgrade #32: baseline for the early-sell watchdog
+                    if PHASE11_AVAILABLE:
+                        try:
+                            p11.record_entry(token, get_token_price_in_eth(w3, token))
+                        except Exception:
+                            pass
+                        # Upgrade #91: A/B variant tagging
+                        if p11.ab_enabled():
+                            try:
+                                p11.record_ab_trade(token, p11.assign_variant(token))
+                            except Exception:
+                                pass
                     tg_send(
                         f"✅ <b>BUY SUCCESS</b>\n"
                         f"Token: <code>{token}</code> ({sym})\n"
@@ -2816,7 +2859,11 @@ def monitor_new_pools_and_snipe(w3: Web3, buy_amount_eth: float = 0.05, cfg: dic
                                 print(f"[SAFETY SKIP] {new_token}: {reason}")
                             continue
                         print(f"AUTO SNIPE: Attempting buy {new_token} with {buy_amt} ETH (live)")
-                        attempt_buy(w3, new_token, fee, buy_amt, cfg, max_retries=1)
+                        # Upgrade #56: split larger entries into chunks to reduce impact
+                        if PHASE11_AVAILABLE and p11.should_chunk(buy_amt):
+                            p11.chunked_buy(w3, new_token, fee, buy_amt, cfg, buy_fn=attempt_buy)
+                        else:
+                            attempt_buy(w3, new_token, fee, buy_amt, cfg, max_retries=1)
                         ACTIVE_POSITIONS[new_token] = buy_amt  # track stub
                     except Exception as decode_err:
                         print(f"Log decode error: {decode_err}")
@@ -2844,7 +2891,10 @@ def monitor_new_pools_and_snipe(w3: Web3, buy_amount_eth: float = 0.05, cfg: dic
                                 PENDING_POOLS_TO_RETRY.pop(token, None)
                                 continue
                             print(f"AUTO SNIPE (RETRY SUCCESS): Attempting buy {token} with {buy_amt} ETH")
-                            attempt_buy(w3, token, item['fee'], buy_amt, cfg, max_retries=1)
+                            if PHASE11_AVAILABLE and p11.should_chunk(buy_amt):
+                                p11.chunked_buy(w3, token, item['fee'], buy_amt, cfg, buy_fn=attempt_buy)
+                            else:
+                                attempt_buy(w3, token, item['fee'], buy_amt, cfg, max_retries=1)
                             ACTIVE_POSITIONS[token] = buy_amt
                             PENDING_POOLS_TO_RETRY.pop(token, None)
                         else:
@@ -2855,6 +2905,10 @@ def monitor_new_pools_and_snipe(w3: Web3, buy_amount_eth: float = 0.05, cfg: dic
                         print(f"[RETRY QUEUE] Error re-checking {token}: {ret_err}")
 
                 last_block = current_block
+
+            # Phase 11: limit orders (#50) + early-sell watchdog (#32), internally rate-limited
+            if PHASE11_AVAILABLE:
+                p11.run_periodic_checks(w3, cfg, get_token_price_in_eth, attempt_buy, tg_send)
 
             time.sleep(3)  # Sleep to reduce rate limits; with paid RPC can be lower for faster detection
 

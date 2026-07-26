@@ -1,8 +1,12 @@
 # 📋 PHASE 1-3 REMAINING UPGRADES ROADMAP
 
-## Current Status
-✅ **60/100+ upgrades completed** in 7 phases  
-⏳ **40+ remaining upgrades** prioritized for next sessions
+## Current Status (updated July 27, 2026)
+✅ **Roadmap complete through Phase 11.** All priority items below were implemented
+across Phases 8–11 (see UPGRADE_STATUS.md). Phase 11 closed the final gaps:
+gas cap (#73), limit orders (#50), chunked buys (#56), bot competition
+avoidance (#58), early-sell watchdog (#32), backtest engine (#90), A/B (#91).
+
+The sections below are kept for historical reference.
 
 ---
 
