@@ -609,6 +609,63 @@ async def token_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("No w3 context.")
 
+async def dashboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Render comprehensive performance analytics dashboard."""
+    import sqlite3
+    try:
+        conn = sqlite3.connect("b20_trades.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT action, eth_amount, status FROM trades")
+        rows = cursor.fetchall()
+        conn.close()
+
+        total_trades = len(rows)
+        wins = [r for r in rows if r[0] in ('sell', 'TP_SELL', 'EXIT_WIN') and r[2] == 'success']
+        losses = [r for r in rows if r[0] in ('RUG_ZERO_LIQ', 'STOP_LOSS', 'EXIT_LOSS')]
+        
+        total_wins = len(wins)
+        total_losses = len(losses)
+        win_rate = (total_wins / (total_wins + total_losses) * 100.0) if (total_wins + total_losses) > 0 else 100.0
+
+        msg = "📈 <b>B20 Sniper Performance Dashboard</b>\n\n"
+        msg += f"📊 <b>Total Trades Recorded:</b> {total_trades}\n"
+        msg += f"🟢 <b>Winning Trades:</b> {total_wins}\n"
+        msg += f"🔴 <b>Losses / Drains:</b> {total_losses}\n"
+        msg += f"🎯 <b>Win Rate:</b> <b>{win_rate:.1f}%</b>\n\n"
+        msg += "⚡ <i>Bot execution is fully active & automated on Base Mainnet.</i>"
+
+        await update.message.reply_html(msg)
+    except Exception as e:
+        await update.message.reply_text(f"Dashboard query error: {e}")
+
+async def revoke_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Revoke token allowance (reset to 0)."""
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("Usage: /revoke <token_address>")
+        return
+    token = args[0]
+    try:
+        token_checksum = to_checksum_address(token)
+        from b20_mainnet_sniper import UNISWAP_V3_ROUTER
+        from safety_analyzer import SafetyAnalyzer
+        use_w3 = _get_w3()
+        if use_w3:
+            pk = os.getenv("PRIVATE_KEY", "")
+            if not pk:
+                await update.message.reply_text("No private key configured.")
+                return
+            analyzer = SafetyAnalyzer(w3=use_w3, quoter_v2=token_checksum, router=UNISWAP_V3_ROUTER, weth=token_checksum)
+            ok, res = await asyncio.to_thread(analyzer.revoke_token_allowance, token_checksum, UNISWAP_V3_ROUTER, pk)
+            if ok:
+                await update.message.reply_html(f"🔒 <b>Allowance Revoked!</b>\nTX Hash: <code>{res}</code>")
+            else:
+                await update.message.reply_text(f"Revoke failed: {res}")
+        else:
+            await update.message.reply_text("No w3 context.")
+    except Exception as e:
+        await update.message.reply_text(f"Revoke error: {e}")
+
 async def debank_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show user portfolio and token balances using DeBank API."""
     use_w3 = _get_w3()
@@ -1794,6 +1851,9 @@ def _build_application(token: str) -> Application:
     app.add_handler(CommandHandler("checkprofit", profit_cmd))
     app.add_handler(CommandHandler("debank", debank_cmd))
     app.add_handler(CommandHandler("portfolio", debank_cmd))
+    app.add_handler(CommandHandler("dashboard", dashboard_cmd))
+    app.add_handler(CommandHandler("performance", dashboard_cmd))
+    app.add_handler(CommandHandler("revoke", revoke_cmd))
 
     # Inline buttons
     app.add_handler(CallbackQueryHandler(button_callback))

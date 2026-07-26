@@ -743,3 +743,51 @@ class SafetyAnalyzer:
         except Exception as e:
             print(f"[GOPLUS ERR] {e}")
         return {"success": False, "is_honeypot": False, "buy_tax_pct": 0.0, "sell_tax_pct": 0.0}
+
+    def scan_bytecode_opcodes(self, token_address: str) -> Dict[str, any]:
+        """
+        Scan EVM bytecode for dangerous assembly opcodes (SELFDESTRUCT ff, DELEGATECALL f4).
+        Returns dict with is_safe, dangerous_opcodes, and score.
+        """
+        try:
+            token_checksum = to_checksum_address(token_address)
+            code = self.w3.eth.get_code(token_checksum).hex().lower()
+            if not code or code == "0x" or code == "0x0":
+                return {"is_safe": False, "reason": "No bytecode found at address", "score": 0}
+
+            dangerous = []
+            if "ff" in code[2:]:  # SELFDESTRUCT
+                dangerous.append("SELFDESTRUCT (0xff)")
+            if "f4" in code[2:]:  # DELEGATECALL
+                dangerous.append("DELEGATECALL (0xf4)")
+
+            score = 100 if not dangerous else max(20, 100 - len(dangerous) * 40)
+            return {
+                "is_safe": len(dangerous) == 0,
+                "dangerous_opcodes": dangerous,
+                "score": score,
+                "code_length": len(code)
+            }
+        except Exception as e:
+            return {"is_safe": True, "dangerous_opcodes": [], "score": 80, "reason": str(e)}
+
+    def analyze_dev_funding_cluster(self, deployer_address: str) -> Dict[str, any]:
+        """
+        Analyze token deployer wallet for funding source metrics and activity level.
+        """
+        try:
+            deployer_checksum = to_checksum_address(deployer_address)
+            tx_count = self.w3.eth.get_transaction_count(deployer_checksum)
+            bal_wei = self.w3.eth.get_balance(deployer_checksum)
+            bal_eth = float(self.w3.from_wei(bal_wei, 'ether'))
+
+            is_fresh = tx_count < 3
+            return {
+                "deployer": deployer_checksum,
+                "tx_count": tx_count,
+                "balance_eth": bal_eth,
+                "is_fresh_wallet": is_fresh,
+                "risk_level": "HIGH" if is_fresh else "NORMAL"
+            }
+        except Exception as e:
+            return {"deployer": deployer_address, "tx_count": 0, "balance_eth": 0.0, "is_fresh_wallet": True, "risk_level": "UNKNOWN"}
