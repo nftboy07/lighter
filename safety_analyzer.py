@@ -713,3 +713,33 @@ class SafetyAnalyzer:
             return (True, tx_hash.hex())
         except Exception as e:
             return (False, str(e))
+
+    def check_goplus_security(self, token_address: str) -> Dict[str, any]:
+        """
+        Query GoPlus Security API for Base mainnet (chain 8453).
+        Returns dict with is_honeypot, buy_tax, sell_tax, and raw_result.
+        """
+        import requests
+        try:
+            token_checksum = to_checksum_address(token_address)
+            url = f"https://api.gopluslabs.io/api/v1/token_security/8453?contract_addresses={token_checksum.lower()}"
+            resp = requests.get(url, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                result = data.get("result", {}).get(token_checksum.lower(), {})
+                if result:
+                    is_honeypot = result.get("is_honeypot", "0") == "1"
+                    cannot_sell = result.get("cannot_sell_all", "0") == "1"
+                    buy_tax = float(result.get("buy_tax", "0") or "0") * 100.0
+                    sell_tax = float(result.get("sell_tax", "0") or "0") * 100.0
+                    return {
+                        "success": True,
+                        "is_honeypot": is_honeypot or cannot_sell,
+                        "buy_tax_pct": buy_tax,
+                        "sell_tax_pct": sell_tax,
+                        "is_blacklisted": result.get("is_blacklisted", "0") == "1",
+                        "raw": result
+                    }
+        except Exception as e:
+            print(f"[GOPLUS ERR] {e}")
+        return {"success": False, "is_honeypot": False, "buy_tax_pct": 0.0, "sell_tax_pct": 0.0}

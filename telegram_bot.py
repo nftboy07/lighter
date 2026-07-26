@@ -478,8 +478,41 @@ async def address_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("No w3 context.")
 
+def fetch_dexscreener_data(token_address: str) -> dict:
+    try:
+        url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            pairs = resp.json().get("pairs", [])
+            if pairs:
+                p0 = pairs[0]
+                return {
+                    "price_usd": float(p0.get("priceUsd", 0) or 0),
+                    "volume_5m": float(p0.get("volume", {}).get("m5", 0) or 0),
+                    "liquidity_usd": float(p0.get("liquidity", {}).get("usd", 0) or 0),
+                    "dex": p0.get("dexId", "unknown")
+                }
+    except Exception as e:
+        print(f"[DEXSCREENER ERR] {e}")
+    return None
+
+def fetch_geckoterminal_data(token_address: str) -> dict:
+    try:
+        url = f"https://api.geckoterminal.com/api/v2/networks/base/tokens/{token_address}"
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            attr = resp.json().get("data", {}).get("attributes", {})
+            if attr:
+                return {
+                    "price_usd": float(attr.get("price_usd", 0) or 0),
+                    "fdv_usd": float(attr.get("fdv_usd", 0) or 0)
+                }
+    except Exception as e:
+        print(f"[GECKOTERM ERR] {e}")
+    return None
+
 async def price_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Real mainnet price (QuoterV2 or slot0) in ETH per token with DeBank USD fallback."""
+    """Real mainnet price with DeBank, DexScreener, and GeckoTerminal aggregations."""
     args = context.args or []
     if not args:
         await update.message.reply_text("Usage: /price <token>")
@@ -513,8 +546,12 @@ async def price_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     print(f"[PRICE DEBANK ERR] {e}")
                     return None, None
             usd_price, eth_price_usd = await asyncio.to_thread(_get_debank_price)
+
+            # 3. Try DexScreener & GeckoTerminal
+            dex_data = await asyncio.to_thread(fetch_dexscreener_data, token_checksum)
+            gecko_data = await asyncio.to_thread(fetch_geckoterminal_data, token_checksum)
             
-            msg = f"Price info for {token[:10]}... :\n\n"
+            msg = f"<b>Price Card for</b> <code>{token[:12]}...</code>:\n\n"
             
             if price > 0:
                 msg += f"⛓️ <b>On-chain:</b> {price:.10f} ETH per token\n"
@@ -524,9 +561,17 @@ async def price_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if usd_price is not None:
                 debank_eth_price = usd_price / eth_price_usd if eth_price_usd else 0.0
                 msg += f"📊 <b>DeBank:</b> ${usd_price:,.6f} USD (~ {debank_eth_price:.10f} ETH)\n"
-                msg += f"💎 <b>ETH Price:</b> ${eth_price_usd:,.2f} USD\n"
             else:
-                msg += f"📊 <b>DeBank:</b> N/A (AccessKey not configured or token not indexed)\n"
+                msg += f"📊 <b>DeBank:</b> N/A\n"
+
+            if dex_data:
+                msg += f"🦅 <b>DexScreener:</b> ${dex_data['price_usd']:,.6f} USD | Liq: ${dex_data['liquidity_usd']:,.0f} ({dex_data['dex']})\n"
+
+            if gecko_data:
+                msg += f"🦎 <b>GeckoTerminal:</b> ${gecko_data['price_usd']:,.6f} USD | FDV: ${gecko_data['fdv_usd']:,.0f}\n"
+
+            if eth_price_usd:
+                msg += f"\n💎 <b>Base ETH Price:</b> ${eth_price_usd:,.2f} USD\n"
                 
             await update.message.reply_html(msg)
             

@@ -136,6 +136,10 @@ DEFAULT_BASE_RPCS = [
     "https://base-mainnet.public.blastapi.io",
     "https://1rpc.io/base",
     "https://gateway.tenderly.co/public/base",
+    "https://base.llamarpc.com",
+    "https://base.drpc.org",
+    "https://base.blockpi.network/v1/rpc/public",
+    "https://base-pokt.nodies.app",
 ]
 
 ACTIVATION_REGISTRY = to_checksum_address("0x8453000000000000000000000000000000000001")
