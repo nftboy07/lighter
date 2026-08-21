@@ -111,6 +111,9 @@ from vpin_toxicity_analyzer import VPINToxicityAnalyzer
 from funding_borrow_optimizer import FundingBorrowYieldOptimizer
 from orderbook_cluster_heatmap import OrderbookClusterEngine
 from emergency_evacuate import EmergencyFlashEvacuator
+from latency_arbitrage_engine import LatencyLeadArbitrageEngine
+from liquidation_cascade_predictor import LiquidationCascadePredictor
+from compound_reinvestment_engine import DynamicCompoundingOptimizer
 
 logger = logging.getLogger("MasterProfitOrchestrator")
 
@@ -195,6 +198,9 @@ class MasterProfitOrchestrator:
         self.yield_optimizer = FundingBorrowYieldOptimizer()
         self.cluster_engine = OrderbookClusterEngine()
         self.evacuator = EmergencyFlashEvacuator()
+        self.latency_arb_engine = LatencyLeadArbitrageEngine()
+        self.cascade_predictor = LiquidationCascadePredictor()
+        self.compounding_optimizer = DynamicCompoundingOptimizer()
 
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
