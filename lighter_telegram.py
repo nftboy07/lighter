@@ -28,6 +28,19 @@ except ImportError:
     generate_position_chart = None
     _cg_tg_send_photo = None
 
+try:
+    from subaccount_manager import SubaccountManager, SubaccountRole
+except ImportError:
+    SubaccountManager = None
+    SubaccountRole = None
+
+try:
+    from telegram_copilot import TelegramAICopilot, CopilotIntentType, ParsedCommand
+except ImportError:
+    TelegramAICopilot = None
+    CopilotIntentType = None
+    ParsedCommand = None
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -221,6 +234,19 @@ class LighterTelegramBot:
             "last_updated": time.time(),
         }
 
+        # Multi-Subaccount Strategy Sharding & Copilot Engine
+        self.subaccount_mgr = self.ctx.get("subaccount_manager")
+        if self.subaccount_mgr is None and SubaccountManager is not None:
+            self.subaccount_mgr = SubaccountManager()
+        if self.subaccount_mgr:
+            self.ctx["subaccount_manager"] = self.subaccount_mgr
+
+        self.copilot = self.ctx.get("copilot")
+        if self.copilot is None and TelegramAICopilot is not None:
+            self.copilot = TelegramAICopilot(self.subaccount_mgr)
+        if self.copilot:
+            self.ctx["copilot"] = self.copilot
+
     def build_main_keyboard(self) -> dict:
         return {
             "inline_keyboard": [
@@ -239,8 +265,16 @@ class LighterTelegramBot:
                     {"text": "💳 Balance ($5.52)", "callback_data": "menu_balance"},
                 ],
                 [
+                    {"text": "🏦 Subaccounts", "callback_data": "menu_subaccounts"},
+                    {"text": "🤖 AI Copilot", "callback_data": "/help"},
+                ],
+                [
                     {"text": "📈 Daily PnL & Volume", "callback_data": "menu_report"},
                     {"text": "🐋 Whale Radar", "callback_data": "menu_whales"},
+                ],
+                [
+                    {"text": "⚡ Funding Arb", "callback_data": "menu_funding"},
+                    {"text": "⚖️ Rebalance", "callback_data": "menu_rebalance"},
                 ],
                 [
                     {"text": "📡 Sources (600+)", "callback_data": "menu_sources"},
@@ -751,6 +785,89 @@ class LighterTelegramBot:
             msg = "▶️ <b>Bot Resumed</b> — 24/7 Universal Catalyst Sniper is active!"
             return msg, self.build_main_keyboard()
 
+        # -------------------------------------------------------------
+        # 4. MULTI-SUBACCOUNT STRATEGY SHARDING & COPILOT ROUTING
+        # -------------------------------------------------------------
+        elif raw in ["/subaccounts", "subaccounts", "menu_subaccounts", "/shards", "shards"]:
+            if self.subaccount_mgr:
+                msg = self.subaccount_mgr.format_subaccounts_report_html()
+                keyboard = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "⚖️ Rebalance Shards", "callback_data": "menu_exec_rebalance"},
+                            {"text": "🔄 Refresh Balances", "callback_data": "menu_subaccounts"},
+                        ],
+                        [
+                            {"text": "⚡ Funding Arb", "callback_data": "menu_funding"},
+                            {"text": "🏠 Main Menu", "callback_data": "/menu"},
+                        ],
+                    ]
+                }
+                return msg, keyboard
+            return "🏦 <b>Subaccounts</b>: Subaccount manager not initialized.", self.build_main_keyboard()
+
+        elif raw in ["/rebalance", "rebalance", "menu_rebalance"]:
+            if self.subaccount_mgr:
+                recs = self.subaccount_mgr.calculate_rebalancing()
+                msg = self.subaccount_mgr.format_rebalance_recommendations_html(recs)
+                keyboard = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "🚀 Execute Rebalance", "callback_data": "menu_exec_rebalance"},
+                            {"text": "🏦 Shard Overview", "callback_data": "menu_subaccounts"},
+                        ],
+                        [
+                            {"text": "🏠 Main Menu", "callback_data": "/menu"},
+                        ],
+                    ]
+                }
+                return msg, keyboard
+            return "⚖️ <b>Rebalance</b>: Subaccount manager not initialized.", self.build_main_keyboard()
+
+        elif raw in ["menu_exec_rebalance", "/exec_rebalance"]:
+            if self.subaccount_mgr:
+                recs = self.subaccount_mgr.calculate_rebalancing()
+                if not recs:
+                    return (
+                        "✅ <b>Collateral Perfectly Balanced!</b>\n"
+                        "All strategy subaccounts are already at optimal allocation levels.",
+                        self.build_main_keyboard(),
+                    )
+                results = []
+                is_paper = self.ctx.get("is_paper_mode", False)
+                for r in recs:
+                    res = await self.subaccount_mgr.transfer_collateral(
+                        from_account_index=r.from_account_index,
+                        to_account_index=r.to_account_index,
+                        amount_usd=r.amount_usd,
+                        is_paper=is_paper,
+                    )
+                    status_icon = "✅" if res.get("success") else "❌"
+                    results.append(
+                        f"{status_icon} <b>Transferred ${r.amount_usd:,.2f}</b> from #{r.from_account_index} ➡️ #{r.to_account_index}"
+                    )
+                msg = (
+                    f"⚖️ <b>SUBACCOUNT REBALANCE EXECUTED ({len(recs)} Transfers)</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    + "\n".join(results)
+                    + "\n\n💡 <i>All strategy shards (Sniper, MM, Arb) are re-aligned!</i>"
+                )
+                return msg, self.build_main_keyboard()
+            return "⚖️ <b>Rebalance</b>: Subaccount manager not initialized.", self.build_main_keyboard()
+
+        elif raw in ["/funding", "funding", "menu_funding"]:
+            if self.copilot:
+                cmd = ParsedCommand(intent=CopilotIntentType.FUNDING_ARBITRAGE, raw_text=text)
+                return await self.copilot.execute_command(cmd, self.ctx, fallback_keyboard_builder=self.build_main_keyboard)
+
+        # -------------------------------------------------------------
+        # 5. NATURAL LANGUAGE AI COPILOT INTERPRETER
+        # -------------------------------------------------------------
+        if self.copilot:
+            cmd = self.copilot.parse_command(text)
+            if cmd.intent != CopilotIntentType.UNKNOWN and cmd.confidence >= 0.70:
+                return await self.copilot.execute_command(cmd, self.ctx, fallback_keyboard_builder=self.build_main_keyboard)
+
         # Fallback
         return (
             "🤖 <b>Universal Everything-Bot Ready!</b>\n"
@@ -758,6 +875,7 @@ class LighterTelegramBot:
             "• Type <b>short &lt;ticker&gt;</b> for short orders\n"
             "• Type <b>close</b> to exit position\n"
             "• Type <b>/tp 3.0</b> to adjust Take-Profit\n"
+            "• Type Natural Language orders: <code>snipe $200 long SOL</code>, <code>breakeven TRUMP</code>, <code>close 50% RIVER</code>\n"
             "• Tap a quick button below:",
             self.build_main_keyboard(),
         )

@@ -21,6 +21,13 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import aiohttp
 from lighter_strategy import L2OrderBook, OrderBookLevel, OrderSide, TargetQuote
+from depth_vwap_engine import (
+    DepthVWAPEngine,
+    MicrostructureDepthBook,
+    calculate_vwap,
+    liquidity_adjusted_size,
+    global_depth_vwap_engine,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +265,7 @@ class LighterExecutionEngine:
 
         self.oms = DeadbandOMS()
         self.simulator = LighterPaperSimulator()
+        self.depth_engine = global_depth_vwap_engine
         self._client_order_counter = int(time.time() * 1000) % 100_000_000
         self.signer_client = None
 
@@ -436,20 +444,66 @@ class LighterExecutionEngine:
                     realized_pnl=realized_pnl,
                 )
 
+    def calculate_vwap_and_size(
+        self,
+        side: OrderSide,
+        target_notional_usd: float,
+        max_slippage_bps: float = 50.0,
+        orderbook: Optional[Any] = None,
+        fallback_price: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Calculates VWAP and slippage-adjusted size for this market index."""
+        book = orderbook or self.depth_engine.get_or_create_book(self.market_index)
+        adj_usd = liquidity_adjusted_size(
+            orderbook=book,
+            side=side.value,
+            requested_usd=target_notional_usd,
+            max_slippage_bps=max_slippage_bps,
+            fallback_price=fallback_price,
+        )
+        vwap_price, filled_usd, slippage_bps, depth_exhausted = calculate_vwap(
+            orderbook=book,
+            side=side.value,
+            target_notional_usd=adj_usd,
+            fallback_price=fallback_price,
+        )
+        return {
+            "requested_usd": target_notional_usd,
+            "executable_usd": adj_usd,
+            "vwap_price": vwap_price,
+            "filled_usd": filled_usd,
+            "expected_slippage_bps": slippage_bps,
+            "depth_exhausted": depth_exhausted,
+        }
+
     async def execute_taker_snipe(
         self,
         side: OrderSide,
         price: float,
         size: float,
         reason: str = "CATALYST_SNIPE",
+        orderbook: Optional[Any] = None,
+        max_slippage_bps: float = 50.0,
     ) -> Dict[str, Any]:
         """
         Executes an immediate directional taker snipe order on the DEX.
         Used for instantaneous catalyst reactions when breaking news hits.
+        Calculates VWAP and expected slippage across available orderbook depth.
         """
         client_id = self.get_next_client_order_id()
         usd_value = price * size
         is_ask = (side == OrderSide.SELL)
+
+        # Microstructure VWAP calculation
+        vwap_meta = self.calculate_vwap_and_size(
+            side=side,
+            target_notional_usd=usd_value,
+            max_slippage_bps=max_slippage_bps,
+            orderbook=orderbook,
+            fallback_price=price,
+        )
+        vwap_price = vwap_meta.get("vwap_price") or price
+        slippage_bps = vwap_meta.get("expected_slippage_bps", 0.0)
 
         if self.is_paper_mode:
             realized_pnl = self.simulator._execute_fill(side, price, size)
@@ -477,8 +531,11 @@ class LighterExecutionEngine:
                 "order_id": f"taker_{client_id}",
                 "side": side.value,
                 "price": price,
+                "vwap_price": vwap_price,
                 "size": size,
                 "usd_value": usd_value,
+                "expected_slippage_bps": slippage_bps,
+                "depth_exhausted": vwap_meta.get("depth_exhausted", False),
                 "realized_pnl": realized_pnl,
                 "is_maker": False,
                 "mode": "PAPER",
@@ -513,8 +570,11 @@ class LighterExecutionEngine:
                     "order_id": str(tx_hash or client_id),
                     "side": side.value,
                     "price": price,
+                    "vwap_price": vwap_price,
                     "size": size,
                     "usd_value": usd_value,
+                    "expected_slippage_bps": slippage_bps,
+                    "depth_exhausted": vwap_meta.get("depth_exhausted", False),
                     "realized_pnl": 0.0,
                     "is_maker": False,
                     "mode": "LIVE",
@@ -549,6 +609,8 @@ class LighterWebSocketStreamer:
         self.on_heartbeat = on_heartbeat_callback
         self.is_running = False
         self.current_book = L2OrderBook(market_index=market_index)
+        self.depth_book = MicrostructureDepthBook(market_index=market_index)
+        global_depth_vwap_engine.books[market_index] = self.depth_book
 
     async def start(self):
         """Runs the WebSocket subscription and event processing loop with auto-reconnect."""
@@ -649,6 +711,11 @@ class LighterWebSocketStreamer:
                 bids=bids,
                 asks=asks,
                 timestamp=time.time(),
+                nonce=ob_data.get("nonce", 0),
+            )
+            self.depth_book.load_snapshot(
+                bids=[(b.price, b.size) for b in bids],
+                asks=[(a.price, a.size) for a in asks],
                 nonce=ob_data.get("nonce", 0),
             )
 

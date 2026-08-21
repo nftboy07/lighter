@@ -35,6 +35,13 @@ from news_observability import AuditLog, NewsMetrics
 from lighter_news_risk import LighterNewsRiskGate, MarketSnapshot, live_execution_allowed
 from treenews_ws import TreeNewsWebSocketClient
 from cross_exchange_momentum import CrossExchangeMomentumFilter, MomentumConfirmation
+from depth_vwap_engine import (
+    DepthVWAPEngine,
+    MicrostructureDepthBook,
+    calculate_vwap,
+    liquidity_adjusted_size,
+    global_depth_vwap_engine,
+)
 
 load_dotenv(Path(__file__).with_name(".env"))
 
@@ -136,6 +143,8 @@ class ActivePosition:
     last_protect_attempt: float = 0.0
     original_size: float = 0.0
     tp_hits: int = 0
+    atr_multiplier: float = 1.0
+    volatility_expanded: bool = False
 
 
 # =============================================================================
@@ -286,6 +295,9 @@ class MaxSizeExecutionEngine:
         self.signer_client = None
         self.active_positions: Dict[str, ActivePosition] = {}
         self.market_meta: Dict[str, Dict[str, Any]] = {}
+        self.depth_engine = global_depth_vwap_engine
+        from volatility_adaptive_exits import get_volatility_engine
+        self.volatility_engine = get_volatility_engine()
         self._http: Optional[aiohttp.ClientSession] = None
         self._order_lock = asyncio.Lock()
         self._last_care_ts: float = 0.0
@@ -422,6 +434,21 @@ class MaxSizeExecutionEngine:
         snapshots = self.snapshots_from_catalog(books, [(asset, market_index)])
         return snapshots.get(asset.upper())
 
+    async def fetch_orderbook_depth(self, market_index: int) -> MicrostructureDepthBook:
+        """Fetches live L2 depth orderbook from Lighter API and updates in-memory engine."""
+        try:
+            session = await self._http_session()
+            url = f"{self.base_url}/api/v1/orderBookOrders?market_id={market_index}&limit=50"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    bids = data.get("bids") or []
+                    asks = data.get("asks") or []
+                    return self.depth_engine.update_from_raw_l2(market_index, bids, asks)
+        except Exception as e:
+            logger.debug("fetch_orderbook_depth error: %s", e)
+        return self.depth_engine.get_or_create_book(market_index)
+
     def snapshots_from_catalog(self, books: List[Dict[str, Any]], wanted: List[Tuple[str, int]]) -> Dict[str, MarketSnapshot]:
         by_symbol: Dict[str, Dict[str, Any]] = {}
         by_id: Dict[int, Dict[str, Any]] = {}
@@ -476,24 +503,32 @@ class MaxSizeExecutionEngine:
         return merged
 
     def ensure_exit_prices(self, pos: ActivePosition) -> None:
-        """Every position always has local TP and SL prices for the watchdog."""
-        from trade_exits import policy_for, tp_sl_prices
+        """Every position always has local TP and SL prices for the watchdog with volatility adaptation."""
+        from trade_exits import policy_for, tp_sl_prices, scale_tp_price
+        from volatility_adaptive_exits import get_volatility_engine
 
-        policy = policy_for(pos.asset, override_tp=pos.tp_pct or None, override_sl=pos.sl_pct or None)
+        engine = getattr(self, "volatility_engine", None) or get_volatility_engine()
+        vol_state = engine.get_state(pos.asset) if engine else None
+        mult = getattr(pos, "atr_multiplier", 1.0) or 1.0
+        if mult == 1.0 and vol_state and vol_state.atr_multiplier > 1.0:
+            mult = vol_state.atr_multiplier
+            pos.atr_multiplier = mult
+            pos.volatility_expanded = vol_state.is_violent_catalyst
+
+        policy = policy_for(pos.asset, override_tp=pos.tp_pct or None, override_sl=pos.sl_pct or None, atr_multiplier=mult)
         pos.tp_pct = pos.tp_pct or policy.tp_pct
         pos.sl_pct = pos.sl_pct or policy.sl_pct
         pos.max_hold_seconds = pos.max_hold_seconds or policy.max_hold_seconds
         pos.trail_arm_pct = pos.trail_arm_pct or policy.trail_arm_pct
-        pos.trail_gap_pct = pos.trail_gap_pct or policy.trail_gap_pct
+        pos.trail_gap_pct = policy.trail_gap_pct if (pos.volatility_expanded or not pos.trail_gap_pct) else pos.trail_gap_pct
         if pos.entry_price <= 0:
             return
         tp, sl = tp_sl_prices(pos.side, pos.entry_price, policy)
         if not pos.original_size:
             pos.original_size = pos.size_eth or pos.ordered_size
-        from trade_exits import scale_tp_price
         nxt = (pos.tp_hits or 0) + 1
         if nxt <= 2:
-            pos.tp_price = scale_tp_price(pos.side, pos.entry_price, policy, nxt)
+            pos.tp_price = scale_tp_price(pos.side, pos.entry_price, policy, nxt, atr_multiplier=mult)
         else:
             pos.tp_price = 0.0
             pos.trail_gap_pct = 1.0
@@ -1098,6 +1133,43 @@ class MaxSizeExecutionEngine:
         if spread > policy.max_spread_bps:
             return {"success": False, "error": f"spread {spread:.1f} bps above {policy.max_spread_bps:.0f} bps exit cap"}
 
+        # Microstructure Depth & VWAP Sizing Guard
+        book = self.depth_engine.get_or_create_book(market_index, symbol=asset)
+        if self.is_live and (not book.sorted_bid_prices or not book.sorted_ask_prices):
+            book = await self.fetch_orderbook_depth(market_index)
+
+        max_slip_bps = getattr(policy, "max_slippage_bps", 50.0) if hasattr(policy, "max_slippage_bps") else 50.0
+        requested_notional = float(notional_usd) if notional_usd is not None else (order_size * current_market_price)
+
+        if book.sorted_ask_prices or book.sorted_bid_prices:
+            adj_notional = liquidity_adjusted_size(
+                orderbook=book,
+                side="SELL" if is_ask else "BUY",
+                requested_usd=requested_notional,
+                max_slippage_bps=max_slip_bps,
+                fallback_price=current_market_price,
+            )
+            vwap_price, filled_usd, expected_slippage_bps, depth_exhausted = calculate_vwap(
+                orderbook=book,
+                side="SELL" if is_ask else "BUY",
+                target_notional_usd=adj_notional,
+                fallback_price=current_market_price,
+            )
+            if adj_notional < requested_notional:
+                order_size = adj_notional / max(1.0, current_market_price)
+                order_size = round(order_size, size_decimals) if size_decimals > 0 else float(int(order_size))
+                logger.info(
+                    f"⚠️ [VWAP SIZING] Adjusted size: ${requested_notional:.2f} -> ${adj_notional:.2f} "
+                    f"(VWAP: ${vwap_price:.2f}, Slip: {expected_slippage_bps:.1f} bps, Cap: {max_slip_bps:.0f} bps)"
+                )
+        else:
+            vwap_price = current_market_price
+            expected_slippage_bps = 0.0
+            depth_exhausted = False
+
+        if order_size <= 0:
+            return {"success": False, "error": "liquidity adjusted order size is zero"}
+
         slippage_mult = (1.0 - self.slippage_tolerance_pct / 100.0) if is_ask else (1.0 + self.slippage_tolerance_pct / 100.0)
         exec_price = current_market_price * slippage_mult
 
@@ -1106,7 +1178,7 @@ class MaxSizeExecutionEngine:
             dynamic_kelly_margin(conviction) if conviction is not None else self.max_margin_utilization_pct
         )
         logger.info(
-            f"🚀 [MAX-SIZE EXECUTION] {side_str} {order_size} {asset} (@ ~${current_market_price:.2f}) | "
+            f"🚀 [MAX-SIZE EXECUTION] {side_str} {order_size} {asset} (@ ~${current_market_price:.2f} | VWAP: ${vwap_price:.2f}) | "
             f"Margin: {effective_margin:.1f}% (${collateral_usd * (effective_margin / 100.0):.2f}) | Reason: {reason}"
         )
 
@@ -1143,6 +1215,9 @@ class MaxSizeExecutionEngine:
                 "side": side_str,
                 "size_eth": order_size,
                 "entry_price": current_market_price,
+                "vwap_price": vwap_price,
+                "expected_slippage_bps": expected_slippage_bps,
+                "depth_exhausted": depth_exhausted,
                 "notional_usd": order_size * current_market_price,
                 "tp_target_price": position.tp_price,
                 "sl_price": position.sl_price,
@@ -1595,6 +1670,24 @@ class MaxSizeExecutionEngine:
 
             pos.highest_price = max(pos.highest_price, current_price)
             pos.lowest_price = min(pos.lowest_price, current_price)
+
+            # Dynamic Breakeven Acceleration: tighten to BE faster if volatility normalizes quickly
+            engine = getattr(self, "volatility_engine", None)
+            if engine and pos.tp_hits == 0 and pos.entry_price > 0:
+                is_long = pos.side.startswith("BUY")
+                pnl_now = ((current_price - pos.entry_price) / pos.entry_price * 100.0) if is_long else ((pos.entry_price - current_price) / pos.entry_price * 100.0)
+                if engine.should_accelerate_breakeven(pos.asset, pos.side, pos.entry_price, current_price, pnl_now):
+                    from trade_exits import breakeven_sl
+                    be_price = breakeven_sl(pos.side, pos.entry_price, 0.1)
+                    if is_long and (pos.sl_price <= 0 or be_price > pos.sl_price):
+                        pos.sl_price = be_price
+                        pos.pending_sl_amend = True
+                        logger.info("⚡ [BE-ACCELERATION] Volatility normalized for %s: accelerated SL to BE @ %s", pos.asset, be_price)
+                    elif not is_long and (pos.sl_price <= 0 or be_price < pos.sl_price):
+                        pos.sl_price = be_price
+                        pos.pending_sl_amend = True
+                        logger.info("⚡ [BE-ACCELERATION] Volatility normalized for %s: accelerated SL to BE @ %s", pos.asset, be_price)
+
             from trade_exits import ExitPolicy, trail_stop
             policy = ExitPolicy(pos.tp_pct, pos.sl_pct, pos.trail_arm_pct, pos.trail_gap_pct, pos.max_hold_seconds, 80)
             prev_sl = pos.sl_price
@@ -1661,10 +1754,11 @@ class MaxSizeExecutionEngine:
         remaining = pos.size_eth
         hits = int(pos.tp_hits or 0)
         orig = pos.original_size or pos.size_eth
-        policy = policy_for(pos.asset, override_tp=pos.tp_pct or None, override_sl=pos.sl_pct or None)
+        mult = getattr(pos, "atr_multiplier", 1.0) or 1.0
+        policy = policy_for(pos.asset, override_tp=pos.tp_pct or None, override_sl=pos.sl_pct or None, atr_multiplier=mult)
         while hits < 2 and remaining > 0:
             nxt = hits + 1
-            tp_px = scale_tp_price(pos.side, pos.entry_price, policy, nxt)
+            tp_px = scale_tp_price(pos.side, pos.entry_price, policy, nxt, atr_multiplier=mult)
             if already_through_exit(pos.side, price, tp_px, 0.0) != "TAKE_PROFIT":
                 break
             qty = partial_qty(orig, remaining, nxt)
@@ -1680,7 +1774,7 @@ class MaxSizeExecutionEngine:
                 pos.sl_price = breakeven_sl(pos.side, pos.entry_price, 0.1)
                 pos.pending_sl_amend = True
             elif nxt == 2:
-                pos.trail_gap_pct = 1.0
+                pos.trail_gap_pct = policy.trail_gap_pct
                 pos.pending_sl_amend = True
         return events
 
@@ -2069,6 +2163,8 @@ class LighterNewsSniperBot:
                 wanted = [(market.symbol, market.market_index) for market in self.markets.enabled()]
                 for asset, snapshot in self.executor.snapshots_from_catalog(books, wanted).items():
                     self.tickers.update(snapshot)
+                    if hasattr(self.executor, "volatility_engine") and self.executor.volatility_engine:
+                        self.executor.volatility_engine.on_tick(snapshot.asset, snapshot.price, timestamp=snapshot.timestamp)
                     if asset == "ETH":
                         self.current_market_price = snapshot.price
                         self.current_market_timestamp = snapshot.timestamp
@@ -2144,6 +2240,8 @@ class LighterNewsSniperBot:
                     snap = self.tickers.get(pos.asset)
                     if snap and snap.price > 0:
                         prices[pos.asset.upper()] = snap.price
+                        if hasattr(self.executor, "volatility_engine") and self.executor.volatility_engine:
+                            self.executor.volatility_engine.on_tick(pos.asset, snap.price, timestamp=snap.timestamp)
                 harvested = await self.executor.harvest_exchange_exits(prices)
                 try:
                     await self._honor_close_requests(prices)

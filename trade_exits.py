@@ -20,7 +20,12 @@ COMMODITY = {"WTI", "BRENTOIL", "XAU", "XAG", "XCU", "XPT", "XPD", "NATGAS", "WH
 CRYPTO = {"BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE", "ADA", "AVAX", "BNB", "LTC", "LINK", "DOT"}
 
 
-def policy_for(symbol: str, override_tp: float | None = None, override_sl: float | None = None) -> ExitPolicy:
+def policy_for(
+    symbol: str,
+    override_tp: float | None = None,
+    override_sl: float | None = None,
+    atr_multiplier: float | None = None,
+) -> ExitPolicy:
     sym = (symbol or "").upper()
     if sym in FX:
         base = ExitPolicy(0.40, 0.30, 0.25, 0.15, 45 * 60, 25)
@@ -32,14 +37,37 @@ def policy_for(symbol: str, override_tp: float | None = None, override_sl: float
         base = ExitPolicy(2.00, 1.50, 2.00, 1.00, 45 * 60, 80)
     else:
         base = ExitPolicy(1.50, 1.00, 1.00, 0.60, 90 * 60, 60)
+
+    tp = override_tp if override_tp is not None else base.tp_pct
+    sl = override_sl if override_sl is not None else base.sl_pct
+    trail_gap = base.trail_gap_pct
+    trail_arm = base.trail_arm_pct
+
+    if atr_multiplier is not None and atr_multiplier > 1.0:
+        from volatility_adaptive_exits import calculate_dynamic_tp_levels, calculate_dynamic_trailing_cushion
+        tp1, _ = calculate_dynamic_tp_levels(base_tp1=tp, base_tp2=tp * 2.0, atr_multiplier=atr_multiplier)
+        tp = tp1
+        trail_gap = calculate_dynamic_trailing_cushion(base_trail_gap=trail_gap, atr_multiplier=atr_multiplier)
+        trail_arm = max(trail_arm, round(tp * 0.75, 4))
+
     return ExitPolicy(
-        tp_pct=override_tp if override_tp is not None else base.tp_pct,
-        sl_pct=override_sl if override_sl is not None else base.sl_pct,
-        trail_arm_pct=base.trail_arm_pct,
-        trail_gap_pct=base.trail_gap_pct,
+        tp_pct=tp,
+        sl_pct=sl,
+        trail_arm_pct=trail_arm,
+        trail_gap_pct=trail_gap,
         max_hold_seconds=base.max_hold_seconds,
         max_spread_bps=base.max_spread_bps,
     )
+
+
+def adaptive_policy_for(
+    symbol: str,
+    atr_multiplier: float = 1.0,
+    override_tp: float | None = None,
+    override_sl: float | None = None,
+) -> ExitPolicy:
+    """Returns an ExitPolicy adapted to the current volatility regime / ATR multiplier."""
+    return policy_for(symbol, override_tp=override_tp, override_sl=override_sl, atr_multiplier=atr_multiplier)
 
 
 def already_through_exit(side: str, mark: float, tp_price: float, sl_price: float) -> Optional[str]:
@@ -71,10 +99,26 @@ BE_OFFSET_PCT = 0.1
 RUNNER_TRAIL_GAP_PCT = 1.0
 
 
-def scale_tp_price(side: str, entry: float, policy: ExitPolicy, level: int) -> float:
-    """TP price for scale-out level 1..3."""
+def scale_tp_price(
+    side: str,
+    entry: float,
+    policy: ExitPolicy,
+    level: int,
+    atr_multiplier: Optional[float] = None,
+) -> float:
+    """TP price for scale-out level 1..3 with dynamic volatility expansion."""
     lvl = max(1, min(3, int(level)))
-    if policy is not None and policy.tp_pct is not None:
+    if atr_multiplier is not None and atr_multiplier >= 2.0:
+        from volatility_adaptive_exits import calculate_dynamic_tp_levels
+        base_tp = policy.tp_pct if policy is not None and policy.tp_pct else 2.0
+        tp1, tp2 = calculate_dynamic_tp_levels(base_tp1=base_tp, base_tp2=base_tp * 2.0, atr_multiplier=atr_multiplier)
+        if lvl == 1:
+            pct = tp1
+        elif lvl == 2:
+            pct = tp2
+        else:
+            pct = tp2 * 1.5
+    elif policy is not None and policy.tp_pct is not None:
         pct = policy.tp_pct * PARTIAL_MULTS[lvl - 1]
     else:
         pct = SCALE_OUT_TARGET_PCTS[min(len(SCALE_OUT_TARGET_PCTS) - 1, lvl - 1)]
