@@ -122,6 +122,10 @@ from heartbeat_deadmans_switch import DeadMansHeartbeatSwitch
 from gas_congestion_arbitrageur import L2GasCongestionArbitrageur
 from basket_cointegration_engine import BasketCointegrationEngine
 from performance_attribution_deck import PerformanceAttributionEngine
+from delta_neutral_basis_vault import DeltaNeutralBasisVault
+from order_flow_imbalance_engine import MicrosecondOFIPredictor
+from triangular_arbitrage_engine import TriangularArbitrageEngine
+from tick_execution_replay import TickExecutionReplayer
 
 logger = logging.getLogger("MasterProfitOrchestrator")
 
@@ -217,6 +221,10 @@ class MasterProfitOrchestrator:
         self.gas_arbitrageur = L2GasCongestionArbitrageur()
         self.basket_engine = BasketCointegrationEngine()
         self.attribution_deck = PerformanceAttributionEngine()
+        self.basis_vault = DeltaNeutralBasisVault()
+        self.ofi_predictor = MicrosecondOFIPredictor()
+        self.triangular_arb = TriangularArbitrageEngine()
+        self.tick_replayer = TickExecutionReplayer()
 
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
