@@ -673,9 +673,12 @@ class MaxSizeExecutionEngine:
                 mark = catalog_prices.get(sym, entry)
                 if mark > 0:
                     prices[sym] = mark
+                open_n = int(item.get("open_order_count") or item.get("position_tied_order_count") or 0)
 
                 pos = self.existing_position(sym)
                 if pos is None or not pos.is_active:
+                    from trade_exits import policy_for
+                    policy = policy_for(sym)
                     pos = ActivePosition(
                         position_id=f"adopted_{sym}_{mkt_idx}",
                         asset=sym,
@@ -684,8 +687,8 @@ class MaxSizeExecutionEngine:
                         entry_price=entry if entry > 0 else (mark if mark > 0 else 1.0),
                         size_eth=size,
                         notional_usd=size * (entry if entry > 0 else mark),
-                        tp_pct=self.default_tp_pct or 2.5,
-                        sl_pct=1.5,
+                        tp_pct=policy.tp_pct or self.default_tp_pct or 2.5,
+                        sl_pct=policy.sl_pct or 1.5,
                         is_active=True,
                     )
                     self.ensure_exit_prices(pos)
@@ -697,6 +700,9 @@ class MaxSizeExecutionEngine:
                 else:
                     pos.size_eth = size
                     self.ensure_exit_prices(pos)
+
+                if open_n < 2 and self.is_live:
+                    asyncio.create_task(self.sync_position_orders(pos, open_n))
         except Exception as e:
             logger.debug(f"Position adoption sync error: {e}")
         return prices
@@ -867,6 +873,8 @@ class MaxSizeExecutionEngine:
         tp_price = pos.tp_price or tp_price
         sl_price = pos.sl_price or sl_price
         status = {"tp": False, "sl": False, "detail": "local watchdog only", "on_book": False}
+        if self.is_live and self.signer_client is None:
+            await self._ensure_signer()
         if not self.is_live or not self.signer_client:
             status["detail"] = "local watchdog TP/SL armed"
             return status
@@ -977,6 +985,8 @@ class MaxSizeExecutionEngine:
         return status
 
     async def amend_trailing_sl(self, pos: ActivePosition) -> bool:
+        if self.is_live and self.signer_client is None:
+            await self._ensure_signer()
         if not self.is_live or not self.signer_client or not pos.sl_price:
             pos.pending_sl_amend = False
             return False
@@ -1222,6 +1232,8 @@ class MaxSizeExecutionEngine:
 
     async def cancel_open_orders(self, market_index: int, extra_indexes: Optional[List[int]] = None) -> int:
         """Cancel leftover TP/SL (and any other) working orders for one market."""
+        if self.is_live and self.signer_client is None:
+            await self._ensure_signer()
         if not self.is_live or not self.signer_client or market_index in (None, -1):
             return 0
         cancelled = 0
@@ -1253,6 +1265,8 @@ class MaxSizeExecutionEngine:
         return cancelled
 
     async def cancel_one_order(self, market_index: int, order_index: int) -> bool:
+        if self.is_live and self.signer_client is None:
+            await self._ensure_signer()
         if not self.is_live or not self.signer_client or not order_index:
             return False
         async with self._order_lock:
@@ -1271,6 +1285,8 @@ class MaxSizeExecutionEngine:
 
     async def sync_position_orders(self, pos: ActivePosition, open_count: int) -> Dict[str, Any]:
         """Every live position gets local TP/SL plus exactly one exchange TP and one SL when the book allows."""
+        if self.is_live and self.signer_client is None:
+            await self._ensure_signer()
         self.ensure_exit_prices(pos)
         if open_count == 2:
             pos.exchange_tp = pos.exchange_sl = True
@@ -1295,6 +1311,8 @@ class MaxSizeExecutionEngine:
         summary = {"cancelled": 0, "orphans": 0, "stale": 0, "attached": 0, "flattened": 0, "pruned": 0}
         if not self.is_live:
             return summary
+        if self.signer_client is None:
+            await self._ensure_signer()
         now = time.time()
         if now - self._last_care_ts < 15:
             return summary
@@ -1358,15 +1376,36 @@ class MaxSizeExecutionEngine:
         live_positions = await self.fetch_account_positions()
         for live in live_positions:
             symbol = str(live.get("symbol") or "").upper()
-            pos = self.existing_position(symbol, live.get("market_index"))
-            if pos is None:
+            mkt_idx = int(live.get("market_index") or 0)
+            size = float(live.get("size") or 0)
+            if not symbol or size <= 0:
                 continue
+            pos = self.existing_position(symbol, mkt_idx)
+            if pos is None:
+                policy = policy_for(symbol)
+                entry = float(live.get("entry_price") or 0)
+                side = live.get("side") or "BUY/LONG"
+                pos = ActivePosition(
+                    position_id=f"adopted_{symbol}_{mkt_idx}",
+                    asset=symbol,
+                    market_index=mkt_idx,
+                    side=side,
+                    entry_price=entry,
+                    size_eth=size,
+                    notional_usd=size * entry,
+                    tp_pct=policy.tp_pct or self.default_tp_pct or 2.5,
+                    sl_pct=policy.sl_pct or 1.5,
+                    is_active=True,
+                )
+                self.ensure_exit_prices(pos)
+                self.active_positions[pos.position_id] = pos
+                logger.info("🛡️ [CARE AUTO-ADOPT] %s %s Size=%s @ $%.4f", symbol, side, size, entry)
             self.ensure_exit_prices(pos)
-            open_n = int(live.get("open_order_count") or 0)
+            open_n = int(live.get("open_order_count") or live.get("position_tied_order_count") or 0)
             if open_n == 2:
                 pos.exchange_tp = pos.exchange_sl = True
                 continue
-            if now - pos.last_protect_attempt < 30:
+            if now - pos.last_protect_attempt < 20:
                 continue
             pos.last_protect_attempt = now
             result = await self.sync_position_orders(pos, open_n)
@@ -1380,6 +1419,8 @@ class MaxSizeExecutionEngine:
 
     async def close_position(self, pos: ActivePosition, current_market_price: float, qty: Optional[float] = None) -> bool:
         """Close full size, or `qty` for a scale-out. Partials keep the clock and remaining TP/SL."""
+        if self.is_live and self.signer_client is None:
+            await self._ensure_signer()
         partial = qty is not None and qty > 0
         if not self.is_live or not self.signer_client:
             if partial:

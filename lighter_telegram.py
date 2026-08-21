@@ -501,6 +501,8 @@ class LighterTelegramBot:
                 for pos in executor.active_positions.values():
                     if not pos.is_active:
                         continue
+                    if hasattr(executor, "ensure_exit_prices"):
+                        executor.ensure_exit_prices(pos)
                     sym = pos.asset
                     side = pos.side
                     size = pos.size_eth
@@ -511,12 +513,17 @@ class LighterTelegramBot:
                     pnl_pct = ((mark - entry) / entry * 100.0) if side == "BUY/LONG" else ((entry - mark) / entry * 100.0)
                     pnl_usd = (mark - entry) * size if side == "BUY/LONG" else (entry - mark) * size
                     emoji = "🟢" if pnl_pct >= 0 else "🔴"
+                    fmt_e = f"${entry:.4f}" if entry < 10 else f"${entry:,.2f}"
+                    fmt_m = f"${mark:.4f}" if mark < 10 else f"${mark:,.2f}"
+                    fmt_tp = f"${tp:.4f}" if tp < 10 else f"${tp:,.2f}"
+                    fmt_sl = f"${sl:.4f}" if sl < 10 else f"${sl:,.2f}"
+                    on_book = "🛡️ <i>On-Chain Guarded</i>" if getattr(pos, "exchange_tp", False) and getattr(pos, "exchange_sl", False) else "⚡ <i>High-Speed Watchdog</i>"
                     lines.append(
-                        f"📊 <b>{sym}</b> ({side})\n"
-                        f"• Size: <code>{size}</code> | Entry: <code>${entry:,.2f}</code> | Mark: <code>${mark:,.2f}</code>\n"
+                        f"📊 <b>{sym}</b> ({side}) — {on_book}\n"
+                        f"• Size: <code>{size}</code> | Entry: <code>{fmt_e}</code> | Mark: <code>{fmt_m}</code>\n"
                         f"• {emoji} PnL: <code>{pnl_pct:+.2f}% (${pnl_usd:+.2f} USD)</code>\n"
-                        f"• 🎯 <b>TP (+{pos.tp_pct:.1f}%):</b> <code>${tp:,.2f}</code>\n"
-                        f"• 🛡️ <b>SL (-{pos.sl_pct:.1f}%):</b> <code>${sl:,.2f}</code>\n"
+                        f"• 🎯 <b>TP (+{pos.tp_pct:.1f}%):</b> <code>{fmt_tp}</code>\n"
+                        f"• 🛡️ <b>SL (-{pos.sl_pct:.1f}%):</b> <code>{fmt_sl}</code>\n"
                     )
             if lines:
                 msg = (
