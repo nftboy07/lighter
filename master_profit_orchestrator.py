@@ -118,6 +118,10 @@ from spoofing_detector import HFTSpoofingDetector
 from monte_carlo_var_simulator import MonteCarloRiskSimulator
 from cross_chain_liquidity_bridger import CrossChainLiquidityBridger
 from vip_tg_twitter_broadcaster import VIPSignalBroadcaster
+from heartbeat_deadmans_switch import DeadMansHeartbeatSwitch
+from gas_congestion_arbitrageur import L2GasCongestionArbitrageur
+from basket_cointegration_engine import BasketCointegrationEngine
+from performance_attribution_deck import PerformanceAttributionEngine
 
 logger = logging.getLogger("MasterProfitOrchestrator")
 
@@ -209,6 +213,10 @@ class MasterProfitOrchestrator:
         self.var_simulator = MonteCarloRiskSimulator()
         self.cross_chain_bridger = CrossChainLiquidityBridger()
         self.vip_broadcaster = VIPSignalBroadcaster()
+        self.deadmans_switch = DeadMansHeartbeatSwitch()
+        self.gas_arbitrageur = L2GasCongestionArbitrageur()
+        self.basket_engine = BasketCointegrationEngine()
+        self.attribution_deck = PerformanceAttributionEngine()
 
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
