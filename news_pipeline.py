@@ -119,9 +119,28 @@ class NewsNormalizer:
         )
 
 
+def jaccard_similarity(s1: str, s2: str) -> float:
+    tokens1 = set(s1.split())
+    tokens2 = set(s2.split())
+    if not tokens1 and not tokens2:
+        return 1.0
+    if not tokens1 or not tokens2:
+        return 0.0
+    return len(tokens1 & tokens2) / len(tokens1 | tokens2)
+
+
+def fuzzy_similarity(s1: str, s2: str) -> float:
+    if s1 == s2:
+        return 1.0
+    sm_ratio = SequenceMatcher(None, s1, s2).ratio()
+    jaccard_ratio = jaccard_similarity(s1, s2)
+    return max(sm_ratio, jaccard_ratio)
+
+
 class NewsDeduplicator:
-    def __init__(self, similarity_threshold: float = 0.92, max_age_seconds: float = 7 * 86400) -> None:
+    def __init__(self, similarity_threshold: float = 0.85, max_age_seconds: float = 7 * 86400, cross_source_threshold: Optional[float] = None) -> None:
         self.similarity_threshold = similarity_threshold
+        self.cross_source_threshold = cross_source_threshold
         self.max_age_seconds = max_age_seconds
         self._events: Dict[str, Tuple[str, float]] = {}
         self._titles: List[Tuple[str, str, float]] = []
@@ -139,8 +158,12 @@ class NewsDeduplicator:
                 return False
         normalized_title = normalize_title(event.headline)
         for prior_source_id, prior_title, _ in self._titles:
-            if prior_source_id == event.source_id and SequenceMatcher(None, normalized_title, prior_title).ratio() >= self.similarity_threshold:
-                return False
+            if prior_source_id == event.source_id:
+                if fuzzy_similarity(normalized_title, prior_title) >= self.similarity_threshold:
+                    return False
+            elif self.cross_source_threshold is not None:
+                if fuzzy_similarity(normalized_title, prior_title) >= self.cross_source_threshold:
+                    return False
         for key in keys:
             if key:
                 self._events[key] = (event.event_id, now)

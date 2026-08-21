@@ -1,4 +1,8 @@
+import os
+import sys
 from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from news_pipeline import NewsDeduplicator, NewsPipeline, NewsNormalizer, classify_event
 from news_sources import NewsSourceConfig, NewsSourceRegistry, RawNewsRecord, canonical_url, parse_entry_time

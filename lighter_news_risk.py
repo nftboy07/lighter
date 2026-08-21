@@ -71,13 +71,14 @@ class LighterNewsRiskGate:
         self.max_daily_loss_usd = float(os.getenv("NEWS_MAX_DAILY_LOSS_USD", "50"))
         self.max_consecutive_losses = int(os.getenv("NEWS_MAX_CONSECUTIVE_LOSSES", "3"))
         self.max_session_trades = int(os.getenv("NEWS_MAX_SESSION_TRADES", "20"))
-        self.cooldown_seconds = float(os.getenv("NEWS_ASSET_COOLDOWN_SECONDS", "30"))
+        self.cooldown_seconds = float(os.getenv("NEWS_ASSET_COOLDOWN_SECONDS", "900"))
         self.risk_per_trade_pct = float(os.getenv("NEWS_RISK_PER_TRADE_PCT", "1.0"))
         self._reserved_usd = 0.0
         self._reservations: Dict[str, float] = {}
         self._asset_reserved: Dict[str, float] = {}
         self._directional_reserved: Dict[str, float] = {}
         self._last_asset_trade: Dict[str, float] = {}
+        self._open_positions: set[str] = set()
         self._session_trades = 0
         self._consecutive_losses = 0
         self._daily_loss_usd = 0.0
@@ -85,6 +86,20 @@ class LighterNewsRiskGate:
         self._pnl_db = os.getenv("NEWS_DB_PATH", "lighter_news.db")
         self._lock = asyncio.Lock()
         self._load_daily_pnl()
+
+    def set_open_position(self, asset: str, is_open: bool = True) -> None:
+        sym = (asset or "").upper()
+        if sym:
+            if is_open:
+                self._open_positions.add(sym)
+            else:
+                self._open_positions.discard(sym)
+
+    def clear_open_position(self, asset: str) -> None:
+        self.set_open_position(asset, False)
+
+    def has_open_position(self, asset: str) -> bool:
+        return (asset or "").upper() in self._open_positions
 
     def size_trade(self, requested_usd: float, stop_distance_pct: float, collateral_usd: float) -> float:
         if stop_distance_pct <= 0:
@@ -105,6 +120,8 @@ class LighterNewsRiskGate:
         collateral_usd: Optional[float] = None,
         stop_distance_pct: float = 1.5,
         momentum_confirmed: Optional[bool] = None,
+        has_open_position: Optional[bool] = None,
+        active_positions: Optional[Dict[str, Any]] = None,
     ) -> RiskDecision:
         reasons = []
         self._roll_day()
@@ -165,8 +182,17 @@ class LighterNewsRiskGate:
             if self._daily_loss_usd >= self.max_daily_loss_usd:
                 reasons.append("daily loss breaker")
             last = self._last_asset_trade.get(symbol, 0.0)
-            if symbol and time.time() - last < self.cooldown_seconds:
-                reasons.append("asset cooldown active")
+            is_open = (
+                has_open_position is True
+                or (has_open_position is None and self.has_open_position(symbol))
+                or bool(active_positions and any(
+                    (getattr(p, "asset", p.get("symbol", "") if isinstance(p, dict) else str(p)).upper() == symbol)
+                    and getattr(p, "is_active", True)
+                    for p in (active_positions.values() if isinstance(active_positions, dict) else active_positions)
+                ))
+            )
+            if symbol and (is_open or (time.time() - last < self.cooldown_seconds)):
+                reasons.append("duplicate news signal: active position or cooldown in effect")
             if self._reserved_usd + sized > self.max_exposure_usd:
                 reasons.append("aggregate news exposure cap reached")
             if symbol and self._asset_reserved.get(symbol, 0.0) + sized > self.max_asset_usd:
@@ -188,6 +214,7 @@ class LighterNewsRiskGate:
         symbol = (asset or "").upper()
         if symbol:
             self._last_asset_trade[symbol] = time.time()
+            self._open_positions.add(symbol)
         self._session_trades += 1
         self._save_daily_pnl()
 

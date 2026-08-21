@@ -183,13 +183,39 @@ class CatalystClassifier:
         },
     ]
 
-    def __init__(self, max_news_age_sec: float = 60.0, min_conviction: float = 0.0):
+    def __init__(self, max_news_age_sec: float = 60.0, min_conviction: float = 0.0, fingerprint_window_sec: float = 900.0):
         self.max_news_age_sec = max_news_age_sec
         self.min_conviction = min_conviction
+        self.fingerprint_window_sec = fingerprint_window_sec
         self.seen_headlines: set = set()
+        self.story_fingerprints: List[Tuple[str, str, set, float]] = []
         self.compiled_rules = [
             (re.compile(c["pattern"], re.IGNORECASE), c) for c in self.CATALYSTS
         ]
+
+    def _prune_fingerprints(self, now: float) -> None:
+        cutoff = now - self.fingerprint_window_sec
+        self.story_fingerprints = [fp for fp in self.story_fingerprints if fp[3] >= cutoff]
+
+    def _extract_tokens(self, text: str) -> set:
+        words = set(re.findall(r"[a-z0-9]+", text.lower()))
+        stopwords = {
+            "a", "an", "the", "in", "on", "at", "to", "for", "of", "with", "by", "from",
+            "and", "or", "as", "is", "are", "was", "were", "it", "this", "that", "be", "has", "have"
+        }
+        return words - stopwords
+
+    def is_duplicate_fingerprint(self, target_asset: str, sentiment: str, text: str, now: Optional[float] = None) -> bool:
+        ts = now if now is not None else time.time()
+        self._prune_fingerprints(ts)
+        tokens = self._extract_tokens(text)
+        for cached_target, cached_sentiment, cached_tokens, fp_ts in self.story_fingerprints:
+            if cached_target.upper() == target_asset.upper() and cached_sentiment == sentiment:
+                union = tokens | cached_tokens
+                jaccard = len(tokens & cached_tokens) / len(union) if union else 1.0
+                if jaccard >= 0.35 or len(tokens & cached_tokens) >= 3:
+                    return True
+        return False
 
     def process_news(self, news: NewsItem) -> Optional[CatalystSignal]:
         now = time.time()
@@ -199,11 +225,26 @@ class CatalystClassifier:
         clean_title = news.headline.strip().lower()
         if clean_title in self.seen_headlines:
             return None
-        self.seen_headlines.add(clean_title)
 
+        self._prune_fingerprints(now)
         full_text = f"{news.headline} {news.body}".strip()
+        tokens = self._extract_tokens(full_text)
+
         for regex, rule in self.compiled_rules:
             if regex.search(full_text) and rule["conviction"] >= self.min_conviction:
+                target = rule["target"]
+                sentiment = rule["sentiment"]
+
+                # Check story fingerprint cache (15-minute lockout)
+                for cached_target, cached_sentiment, cached_tokens, fp_ts in self.story_fingerprints:
+                    if cached_target.upper() == target.upper() and cached_sentiment == sentiment:
+                        union = tokens | cached_tokens
+                        jaccard = len(tokens & cached_tokens) / len(union) if union else 1.0
+                        if jaccard >= 0.35 or len(tokens & cached_tokens) >= 3:
+                            return None
+
+                self.seen_headlines.add(clean_title)
+                self.story_fingerprints.append((target, sentiment, tokens, now))
                 return CatalystSignal(
                     news_id=f"cat_{int(now*1000)}",
                     headline=news.headline,
@@ -1701,6 +1742,8 @@ class LighterNewsSniperBot:
         self.audit = AuditLog(str(Path(__file__).with_name("news_audit.jsonl")))
         self.current_market_price = float(os.getenv("LIGHTER_ETH_PRICE", "2650.0"))
         self.current_market_timestamp = time.time()
+        self.story_fingerprint_window_sec = float(os.getenv("NEWS_STORY_FINGERPRINT_WINDOW_SEC", "900.0"))
+        self._story_fingerprints: List[Tuple[str, str, str, set, float]] = []
         self.news_risk_gate = LighterNewsRiskGate(live=self.is_live)
         self.momentum_filter = CrossExchangeMomentumFilter()
         self.news_risk_gate.momentum_filter = self.momentum_filter
@@ -1734,6 +1777,39 @@ class LighterNewsSniperBot:
             logger.info("📱 [TG] High-Speed Interactive Telegram Bot active.")
         except Exception as tge:
             logger.warning(f"Telegram listener init warning: {tge}")
+
+    def _prune_story_fingerprints(self, now: float) -> None:
+        cutoff = now - self.story_fingerprint_window_sec
+        self._story_fingerprints = [item for item in self._story_fingerprints if item[4] >= cutoff]
+
+    def _extract_story_tokens(self, text: str) -> set:
+        words = set(re.findall(r"[a-z0-9]+", text.lower()))
+        stopwords = {
+            "a", "an", "the", "in", "on", "at", "to", "for", "of", "with", "by", "from",
+            "and", "or", "as", "is", "are", "was", "were", "it", "this", "that", "be", "has", "have"
+        }
+        return words - stopwords
+
+    def _is_duplicate_story_fingerprint(self, asset: str, side: str, event: NormalizedNewsEvent, now: float) -> bool:
+        sym = asset.upper()
+        cluster_id = getattr(event, "cluster_id", "")
+        tokens = self._extract_story_tokens(f"{event.headline} {event.body}")
+        for cached_asset, cached_side, cached_cluster, cached_tokens, ts in self._story_fingerprints:
+            if cached_asset == sym:
+                if cluster_id and cached_cluster and cluster_id == cached_cluster:
+                    return True
+                if cached_side == side:
+                    union = tokens | cached_tokens
+                    jaccard = len(tokens & cached_tokens) / len(union) if union else 1.0
+                    if jaccard >= 0.35 or len(tokens & cached_tokens) >= 3:
+                        return True
+        return False
+
+    def _record_story_fingerprint(self, asset: str, side: str, event: NormalizedNewsEvent, now: float) -> None:
+        sym = asset.upper()
+        cluster_id = getattr(event, "cluster_id", "")
+        tokens = self._extract_story_tokens(f"{event.headline} {event.body}")
+        self._story_fingerprints.append((sym, side, cluster_id, tokens, now))
 
     def _on_correction(self, event: NormalizedNewsEvent) -> None:
         self.metrics.inc("corrections")
@@ -1798,6 +1874,20 @@ class LighterNewsSniperBot:
             self.metrics.inc("unconfirmed")
             return
 
+        # Check active position lockout
+        if self.executor.existing_position(market.symbol, market.market_index):
+            self.metrics.inc("active_position_lockout")
+            logger.info("[DEDUP] Dropped duplicate news: Active position already exists for %s", market.symbol)
+            return
+
+        # Story Fingerprint / Cluster Lockout: Track traded clusters and story fingerprints with a 15-minute expiration
+        now = time.time()
+        self._prune_story_fingerprints(now)
+        if self._is_duplicate_story_fingerprint(market.symbol, side, event, now):
+            self.metrics.inc("duplicate_catalyst_lockout")
+            logger.info("[DEDUP] Dropped duplicate news: Story fingerprint/cluster already processed for %s (%s)", market.symbol, event.headline[:80])
+            return
+
         snapshot = self.tickers.get(market.symbol)
         if snapshot is None or not snapshot.fresh:
             fetched = await self.executor.fetch_market_snapshot(market.symbol, market.market_index)
@@ -1846,6 +1936,7 @@ class LighterNewsSniperBot:
             collateral_usd=collateral,
             stop_distance_pct=market.sl_pct,
             momentum_confirmed=momentum_confirmed,
+            active_positions=self.executor.active_positions,
         )
         if not decision.approved:
             self.metrics.inc("vetoed")
@@ -1893,6 +1984,7 @@ class LighterNewsSniperBot:
             await self.news_risk_gate.release(decision.reservation_id, market.symbol, side)
             return
         await self.intent_queue.mark(intent.intent_id, "reserved", reservation_id=decision.reservation_id)
+        self._record_story_fingerprint(market.symbol, side, event, now)
 
         try:
             result = await self.executor.execute_trade(
