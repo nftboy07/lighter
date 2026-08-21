@@ -2077,15 +2077,7 @@ class LighterNewsSniperBot:
             self.metrics.inc("vetoed")
             self.audit.emit("vetoed", event.event_id, reasons=decision.reasons)
             logger.warning("News signal vetoed: %s", "; ".join(decision.reasons))
-            try:
-                from lighter_telegram import tg_send
-                tg_send(
-                    f"🛑 <b>NEWS SIGNAL VETOED</b>\n"
-                    f"📰 {event.headline}\n"
-                    f"📌 <code>{'; '.join(decision.reasons)}</code>"
-                )
-            except Exception as tge:
-                logger.warning("Telegram veto alert error: %s", tge)
+            logger.info("🚫 [1st-News Guard] Duplicate/cooldown signal dropped silently: %s", "; ".join(decision.reasons))
             return
 
         if self.kill_engaged():
