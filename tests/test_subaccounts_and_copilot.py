@@ -481,3 +481,20 @@ async def test_tg_bot_copilot_analytics_and_controls(tg_bot):
     msg_resume, _ = await tg_bot.handle_user_action("resume bot", user_id=12345)
     assert "Bot Resumed" in msg_resume
 
+
+@pytest.mark.asyncio
+async def test_ensure_margin_available_jit():
+    manager = SubaccountManager()
+    # Set account 737649 to $1.0 (deficit) and 281474976497685 to $50.0 (surplus)
+    manager.update_state(737649, collateral_usd=1.0, available_margin_usd=1.0)
+    manager.update_state(281474976497685, collateral_usd=50.0, available_margin_usd=50.0)
+
+    # Need $10.0 on 737649 -> Should automatically pull from 281474976497685
+    success = await manager.ensure_margin_available(
+        target_account_index=737649,
+        required_margin_usd=10.0,
+        is_paper=True,
+    )
+    assert success is True
+    assert manager.states[737649].collateral_usd >= 10.0
+

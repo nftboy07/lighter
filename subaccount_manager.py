@@ -535,6 +535,52 @@ class SubaccountManager:
             "is_paper": is_paper,
         }
 
+    async def ensure_margin_available(
+        self,
+        target_account_index: int,
+        required_margin_usd: float,
+        is_paper: bool = False,
+    ) -> bool:
+        """
+        Automatic Just-In-Time (JIT) Margin Top-Up:
+        If target subaccount has insufficient margin for an incoming trade,
+        automatically pulls collateral from surplus subaccounts or the treasury shard.
+        """
+        target_st = self.states.get(target_account_index)
+        if not target_st:
+            return False
+
+        if target_st.available_margin_usd >= required_margin_usd:
+            return True  # Already has sufficient margin
+
+        deficit = required_margin_usd - target_st.available_margin_usd
+
+        # Find subaccounts with surplus available margin
+        for acc_idx, st in self.states.items():
+            if acc_idx == target_account_index:
+                continue
+
+            # Check if this account has excess available margin
+            if st.available_margin_usd > 1.0:
+                transfer_amount = min(deficit, st.available_margin_usd * 0.80)
+                if transfer_amount >= 0.50:
+                    res = await self.transfer_collateral(
+                        from_account_index=acc_idx,
+                        to_account_index=target_account_index,
+                        amount_usd=transfer_amount,
+                        is_paper=is_paper,
+                    )
+                    if res.get("success"):
+                        deficit -= transfer_amount
+                        if deficit <= 0.01:
+                            logger.info(
+                                f"⚡ [JIT Margin] Automatically funded subaccount #{target_account_index} "
+                                f"with ${transfer_amount:.2f} USD from #{acc_idx}."
+                            )
+                            return True
+
+        return target_st.available_margin_usd >= required_margin_usd
+
     def get_portfolio_summary(self) -> Dict[str, Any]:
         """Returns consolidated multi-subaccount portfolio telemetry."""
         total_collateral = self.get_total_portfolio_value()
