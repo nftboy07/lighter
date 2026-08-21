@@ -126,6 +126,16 @@ from delta_neutral_basis_vault import DeltaNeutralBasisVault
 from order_flow_imbalance_engine import MicrosecondOFIPredictor
 from triangular_arbitrage_engine import TriangularArbitrageEngine
 from tick_execution_replay import TickExecutionReplayer
+from as_inventory_skew import ASInventorySkewEngine
+from micro_burst_protector import MicroBurstProtector
+from funding_rate_forecaster import FundingRateForecaster
+from hidden_wall_shadow import HiddenWallShadowEngine
+from mesh_rebalancer import AutonomousMeshRebalancer
+from trend_confluence_engine import TrendConfluenceEngine
+from kelly_drawdown_sizer import AdaptiveKellyDrawdownSizer
+from execution_impact_minimizer import AlmgrenChrissImpactMinimizer
+from institutional_circuit_breaker import InstitutionalCircuitBreaker
+from telemetry_health_exporter import TelemetryHealthExporter
 
 logger = logging.getLogger("MasterProfitOrchestrator")
 
@@ -225,6 +235,16 @@ class MasterProfitOrchestrator:
         self.ofi_predictor = MicrosecondOFIPredictor()
         self.triangular_arb = TriangularArbitrageEngine()
         self.tick_replayer = TickExecutionReplayer()
+        self.as_skew_engine = ASInventorySkewEngine()
+        self.micro_burst_protector = MicroBurstProtector()
+        self.funding_forecaster = FundingRateForecaster()
+        self.hidden_wall_shadow = HiddenWallShadowEngine()
+        self.mesh_rebalancer = AutonomousMeshRebalancer()
+        self.trend_confluence = TrendConfluenceEngine()
+        self.kelly_sizer = AdaptiveKellyDrawdownSizer()
+        self.impact_minimizer = AlmgrenChrissImpactMinimizer()
+        self.circuit_breaker = InstitutionalCircuitBreaker()
+        self.telemetry_exporter = TelemetryHealthExporter()
 
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
