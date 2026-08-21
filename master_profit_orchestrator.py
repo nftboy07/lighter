@@ -104,6 +104,9 @@ from advanced_tpsl_engine import AdvancedTPSLEngine
 from cython_fast_signer import UltraFastSignerEngine
 from cex_flow_predetector import CEXFlowPreDetector
 from macro_onchain_sources import MacroOnChainSourcesEngine
+from genetic_optimizer import GeneticStrategyOptimizer
+from smart_order_router import CrossDEXSmartOrderRouter
+from mev_gas_accelerator import DynamicMempoolGasAccelerator
 
 logger = logging.getLogger("MasterProfitOrchestrator")
 
@@ -181,6 +184,9 @@ class MasterProfitOrchestrator:
         self.fast_signer = UltraFastSignerEngine()
         self.cex_detector = CEXFlowPreDetector()
         self.macro_sources = MacroOnChainSourcesEngine()
+        self.genetic_optimizer = GeneticStrategyOptimizer()
+        self.smart_order_router = CrossDEXSmartOrderRouter()
+        self.mev_accelerator = DynamicMempoolGasAccelerator()
 
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
