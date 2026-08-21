@@ -58,3 +58,12 @@ Thumbs.db
 # Databases
 *.db
 b20_trades.db
+news_audit.jsonl
+
+# Autobot — runtime workspace (credentials, sessions, screenshots)
+workspace/
+credentials.json
+
+# Autobot env (keep only the .example)
+.env.autobot
+!.env.autobot.example

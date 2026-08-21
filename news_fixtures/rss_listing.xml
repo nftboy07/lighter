@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Fixture Exchange Feed</title>
+    <item>
+      <title>Exchange lists ETH perpetual market</title>
+      <link>https://www.coinbase.com/blog/eth-listing?utm_source=test</link>
+      <guid>https://www.coinbase.com/blog/eth-listing</guid>
+      <pubDate>Tue, 20 Aug 2026 12:00:00 GMT</pubDate>
+      <description>Official listing announced for ETH.</description>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,38 @@
+[
+  {
+    "source_id": "one",
+    "publisher": "One",
+    "title": "Exchange lists ETH",
+    "body": "Official listing announced",
+    "url": "https://one.test/a",
+    "guid": "one-a",
+    "published_at": "2026-08-20T12:00:00+00:00",
+    "ingested_at": "2026-08-20T12:00:01+00:00",
+    "trust_score": 0.9,
+    "category": "official"
+  },
+  {
+    "source_id": "two",
+    "publisher": "Two",
+    "title": "Exchange lists ETH",
+    "body": "Confirmed listing",
+    "url": "https://two.test/a",
+    "guid": "two-a",
+    "published_at": "2026-08-20T12:00:05+00:00",
+    "ingested_at": "2026-08-20T12:00:06+00:00",
+    "trust_score": 0.9,
+    "category": "official"
+  },
+  {
+    "source_id": "one",
+    "publisher": "One",
+    "title": "Correction: ETH listing was a false report",
+    "body": "We retract the listing article. Not approved.",
+    "url": "https://one.test/a-correction",
+    "guid": "one-a-correction",
+    "published_at": "2026-08-20T12:05:00+00:00",
+    "ingested_at": "2026-08-20T12:05:01+00:00",
+    "trust_score": 0.9,
+    "category": "official"
+  }
+]

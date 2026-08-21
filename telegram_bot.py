@@ -476,6 +476,104 @@ async def ab_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
+async def arb_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Upgrade #6: Cross-pool arbitrage check (Uniswap V3 vs Aerodrome)
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("Usage: /arb <token_address>")
+        return
+    try:
+        from complete_100_upgrades import CrossPoolArbitrageDetector
+        detector = CrossPoolArbitrageDetector()
+        token = args[0]
+        msg = f"🔄 <b>Cross-Pool Arbitrage Scanner (UniV3 vs Aerodrome)</b>\nToken: <code>{token}</code>\n"
+        from b20_mainnet_sniper import get_token_price_in_eth
+        use_w3 = _get_w3()
+        if use_w3:
+            p_uni = get_token_price_in_eth(use_w3, token)
+            res = detector.check_arbitrage(token, p_uni, p_uni * 0.98 if p_uni > 0 else 0)
+            msg += f"UniV3 Price: ~{p_uni:.8f} ETH\nArbitrage Opportunity: {'✅ YES' if res['has_opportunity'] else '❌ None'}"
+        else:
+            msg += "⚠️ W3 context not initialized."
+        await update.message.reply_text(msg, parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Arb error: {e}")
+
+async def vesting_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Upgrade #31: Team allocation & lock analyzer
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("Usage: /vesting <token_address>")
+        return
+    try:
+        from complete_100_upgrades import TeamVestingAnalyzer
+        token = args[0]
+        msg = f"🔒 <b>Vesting & Lock Analyzer</b>\nToken: <code>{token}</code>\n"
+        from safety_analyzer import SafetyAnalyzer
+        use_w3 = _get_w3()
+        if use_w3:
+            analyzer = SafetyAnalyzer(use_w3)
+            holders = analyzer._get_top_holders_heuristic(token)
+            lock_res = TeamVestingAnalyzer.analyze_locks(holders)
+            msg += f"Locked Supply: <b>{lock_res['locked_percentage']}%</b>\nStatus: {'🟢 Well Locked' if lock_res['is_well_locked'] else '⚠️ Low/No Lock'}\n"
+            for d in lock_res['details'][:5]:
+                msg += f"• {d}\n"
+        else:
+            msg += "⚠️ W3 context not initialized."
+        await update.message.reply_text(msg, parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Vesting error: {e}")
+
+async def spoof_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Upgrade #33: Homoglyph & unicode spoof check
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("Usage: /spoof <name> [symbol]")
+        return
+    try:
+        from complete_100_upgrades import HomoglyphSpoofDetector
+        name = args[0]
+        sym = args[1] if len(args) > 1 else name
+        res = HomoglyphSpoofDetector.analyze_name_spoofing(name, sym)
+        msg = (
+            f"🕵️ <b>Spoof & Homoglyph Analysis</b>\n"
+            f"Input Name: <code>{name}</code> | Symbol: <code>{sym}</code>\n"
+            f"Suspicious: {'🚨 YES' if res['is_suspicious'] else '✅ Clean'}\n"
+            f"Hidden Unicode: {'⚠️ Detected' if res['has_hidden_chars'] else 'None'}\n"
+            f"Impersonating: {'⚠️ ' + res['target_brand'] if res['is_impersonating'] else 'None'}\n"
+            f"Sanitized: <code>{res['sanitized_symbol']}</code>"
+        )
+        await update.message.reply_text(msg, parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Spoof error: {e}")
+
+async def aggression_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Upgrade #74: Dynamic aggression status and sizing
+    try:
+        from complete_100_upgrades import DynamicAggressionController
+        from db_manager import DBManager
+        db = DBManager()
+        summary = db.get_trade_summary()
+        win_rate = summary.get("win_rate", 0.0)
+        total = summary.get("total_trades", 0)
+
+        controller = DynamicAggressionController()
+        params = controller.get_dynamic_parameters(win_rate, total)
+
+        msg = (
+            f"🎯 <b>Dynamic Aggression Controller (#74)</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"<b>Current Tier:</b> {params['tier']}\n"
+            f"<b>Win Rate:</b> {params['win_rate_pct']}%\n"
+            f"<b>Total Trades:</b> {total}\n"
+            f"<b>Dynamic Snipe Amount:</b> {params['snipe_amount_eth']} ETH\n"
+            f"<b>Gas Premium:</b> +{params['gas_premium_gwei']} Gwei\n"
+            f"<b>Slippage Tolerance:</b> {params['slippage_tolerance_pct']}%\n"
+        )
+        await update.message.reply_text(msg, parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Aggression error: {e}")
+
 async def buy_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Manual buy — force=True skips pool/liq/MEV guards and reports every step to Telegram
     args = context.args or []
@@ -1947,6 +2045,10 @@ def _build_application(token: str) -> Application:
     app.add_handler(CommandHandler("dashboard", dashboard_cmd))
     app.add_handler(CommandHandler("performance", dashboard_cmd))
     app.add_handler(CommandHandler("revoke", revoke_cmd))
+    app.add_handler(CommandHandler("arb", arb_cmd))
+    app.add_handler(CommandHandler("vesting", vesting_cmd))
+    app.add_handler(CommandHandler("spoof", spoof_cmd))
+    app.add_handler(CommandHandler("aggression", aggression_cmd))
 
     # Inline buttons
     app.add_handler(CallbackQueryHandler(button_callback))

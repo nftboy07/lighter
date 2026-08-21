@@ -1,0 +1,11 @@
+{
+  "articles": [
+    {
+      "id": "json-eth-1",
+      "title": "SEC approves spot Ethereum ETF trading",
+      "description": "Regulatory filing confirms ETF launch.",
+      "url": "https://www.sec.gov/news/eth-etf",
+      "publishedAt": "2026-08-20T12:00:00+00:00"
+    }
+  ]
+}
