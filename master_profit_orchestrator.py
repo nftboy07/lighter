@@ -93,6 +93,17 @@ from volatility_adaptive_exits import (
     VolatilityAdaptiveExitEngine,
     get_volatility_engine,
 )
+from profit_harvesting_daemon import AutonomousProfitHarvestingDaemon
+from capital_allocator import CapitalGrowthAllocator
+from multi_market_grid_quoter import MultiMarketGridQuoterEngine
+from delta_hedger import AutonomousDeltaHedger
+from ws_auto_healing import WebSocketAutoHealingSupervisor
+from volatility_forecaster import GARCHVolatilityForecaster
+from microstructure_entry_filter import MicrostructureEntryFilter
+from advanced_tpsl_engine import AdvancedTPSLEngine
+from cython_fast_signer import UltraFastSignerEngine
+from cex_flow_predetector import CEXFlowPreDetector
+from macro_onchain_sources import MacroOnChainSourcesEngine
 
 logger = logging.getLogger("MasterProfitOrchestrator")
 
@@ -159,6 +170,17 @@ class MasterProfitOrchestrator:
             config=AntiToxicGuardConfig(velocity_threshold_pct=0.20)
         )
         self.volatility_engine = get_volatility_engine()
+        self.harvest_daemon = AutonomousProfitHarvestingDaemon(subaccount_manager=self.subaccount_manager)
+        self.capital_allocator = CapitalGrowthAllocator()
+        self.multi_grid_engine = MultiMarketGridQuoterEngine()
+        self.delta_hedger = AutonomousDeltaHedger()
+        self.ws_supervisor = WebSocketAutoHealingSupervisor()
+        self.volatility_forecaster = GARCHVolatilityForecaster()
+        self.microstructure_filter = MicrostructureEntryFilter()
+        self.advanced_tpsl = AdvancedTPSLEngine()
+        self.fast_signer = UltraFastSignerEngine()
+        self.cex_detector = CEXFlowPreDetector()
+        self.macro_sources = MacroOnChainSourcesEngine()
 
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
