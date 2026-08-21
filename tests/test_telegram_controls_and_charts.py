@@ -339,3 +339,25 @@ async def test_handle_user_action_position_not_found(bot, mock_executor):
 
     msg_tp, _ = await bot.handle_user_action("pos_tp2_unknown_id", 12345)
     assert "Position Not Found" in msg_tp
+
+
+def test_telegram_anti_spam_duplicate_filtering():
+    from lighter_telegram import is_duplicate_telegram_message, _SENT_MESSAGES_HISTORY
+
+    _SENT_MESSAGES_HISTORY.clear()
+
+    # 1. First breaking news message -> Not duplicate
+    msg1 = "⚡ <b>BREAKING NEWS CATALYST</b>\nUS SEC Formally Approves Solana Spot ETF Filings for Trading"
+    assert is_duplicate_telegram_message(msg1) is False
+
+    # 2. Duplicate follow-up from CoinDesk/Twitter -> Dropped (duplicate!)
+    msg2 = "⚡ <b>CATALYST</b>: SEC Approves Solana Spot ETF trading S-1 filings"
+    assert is_duplicate_telegram_message(msg2) is True
+
+    # 3. Third duplicate from Bloomberg -> Dropped (duplicate!)
+    msg3 = "BREAKING: Solana ETF approved by SEC formally today"
+    assert is_duplicate_telegram_message(msg3) is True
+
+    # 4. Different event on Ethereum -> Passed (not duplicate!)
+    msg4 = "⚡ <b>BREAKING</b>: Ethereum developers confirm Pectra hardfork upgrade date"
+    assert is_duplicate_telegram_message(msg4) is False

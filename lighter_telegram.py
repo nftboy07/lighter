@@ -89,10 +89,72 @@ def get_telegram_config() -> Tuple[str, str]:
     return token, chat_id
 
 
+from collections import deque
+from difflib import SequenceMatcher
+import re
+
+# Telegram Anti-Spam History: Deque of (token_set, text_snippet, timestamp)
+_SENT_MESSAGES_HISTORY: deque = deque(maxlen=200)
+_SENT_LOCK = threading.Lock()
+
+
+def is_duplicate_telegram_message(text: str, window_seconds: float = 3600.0) -> bool:
+    """
+    Checks if a news alert or execution message is a duplicate/rephrased version
+    of a message already sent to Telegram within the last 60 minutes.
+    """
+    # Exclude system reports, menus, and on-demand commands from deduplication
+    if any(k in text for k in ["LIGHTER BOT:", "DAILY REPORT", "ACTIVE POSITIONS", "ORCHESTRATOR", "STATUS"]):
+        return False
+
+    # Extract alphanumeric tokens and apply 4-char prefix stemming
+    clean = re.sub(r"<[^>]+>", " ", text).lower()
+    raw_tokens = re.findall(r"\b[a-z0-9]{3,}\b", clean)
+    if len(raw_tokens) < 3:
+        return False
+
+    # Stem tokens (e.g. approves -> approv, approved -> approv)
+    tokens = {t[:5] for t in raw_tokens}
+
+    now = time.time()
+    with _SENT_LOCK:
+        for cached_tokens, cached_text, ts in list(_SENT_MESSAGES_HISTORY):
+            if now - ts > window_seconds:
+                continue
+
+            # 1. Stemmed Token Overlap
+            common = tokens & cached_tokens
+            if len(common) >= 3:
+                logger.info("🚫 [TG Anti-Spam] Dropped duplicate news headline (Shared stems: %s): %s", common, clean[:80])
+                return True
+
+            # 2. Jaccard overlap
+            union = tokens | cached_tokens
+            if union:
+                jaccard = len(common) / len(union)
+                if jaccard >= 0.35:
+                    logger.info("🚫 [TG Anti-Spam] Dropped duplicate news headline (Jaccard: %.2f): %s", jaccard, clean[:80])
+                    return True
+
+            # 3. String Sequence Matcher
+            sim = SequenceMatcher(None, clean[:120], cached_text[:120]).ratio()
+            if sim >= 0.55:
+                logger.info("🚫 [TG Anti-Spam] Dropped duplicate news headline (Similarity: %.2f): %s", sim, clean[:80])
+                return True
+
+        # Not a duplicate -> record in history
+        _SENT_MESSAGES_HISTORY.append((tokens, clean[:150], now))
+        return False
+
+
 def tg_send(text: str, reply_markup: Optional[dict] = None) -> bool:
     token, chat_id = get_telegram_config()
     if not token or not chat_id or "YOUR_" in token:
         return False
+
+    # Enforce strict 1st-news only guard on Telegram
+    if is_duplicate_telegram_message(text):
+        return True  # Silently suppress duplicate news without erroring
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
