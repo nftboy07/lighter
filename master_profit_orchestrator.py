@@ -107,6 +107,10 @@ from macro_onchain_sources import MacroOnChainSourcesEngine
 from genetic_optimizer import GeneticStrategyOptimizer
 from smart_order_router import CrossDEXSmartOrderRouter
 from mev_gas_accelerator import DynamicMempoolGasAccelerator
+from vpin_toxicity_analyzer import VPINToxicityAnalyzer
+from funding_borrow_optimizer import FundingBorrowYieldOptimizer
+from orderbook_cluster_heatmap import OrderbookClusterEngine
+from emergency_evacuate import EmergencyFlashEvacuator
 
 logger = logging.getLogger("MasterProfitOrchestrator")
 
@@ -187,6 +191,10 @@ class MasterProfitOrchestrator:
         self.genetic_optimizer = GeneticStrategyOptimizer()
         self.smart_order_router = CrossDEXSmartOrderRouter()
         self.mev_accelerator = DynamicMempoolGasAccelerator()
+        self.vpin_analyzer = VPINToxicityAnalyzer()
+        self.yield_optimizer = FundingBorrowYieldOptimizer()
+        self.cluster_engine = OrderbookClusterEngine()
+        self.evacuator = EmergencyFlashEvacuator()
 
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
