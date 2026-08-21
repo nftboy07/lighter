@@ -51,13 +51,13 @@ def test_subaccount_manager_default_initialization():
     # Verify MM subaccount
     mm_prof = mgr.get_subaccount(SubaccountRole.MARKET_MAKER)
     assert mm_prof is not None
-    assert mm_prof.account_index == 737650
+    assert mm_prof.account_index == 281474976497685
     assert mm_prof.target_allocation_pct == 40.0
 
     # Verify Arb subaccount
     arb_prof = mgr.get_subaccount(SubaccountRole.ARBITRAGE)
     assert arb_prof is not None
-    assert arb_prof.account_index == 737651
+    assert arb_prof.account_index == 281474976497686
     assert arb_prof.target_allocation_pct == 20.0
 
 
@@ -71,16 +71,16 @@ def test_subaccount_manager_routing():
     assert mgr.route_strategy(SubaccountRole.SNIPER).account_index == 737649
     
     # MM routing
-    assert mgr.route_strategy("market_maker").account_index == 737650
-    assert mgr.route_strategy("mm").account_index == 737650
-    assert mgr.route_strategy("points_farming").account_index == 737650
-    assert mgr.route_strategy(SubaccountRole.MARKET_MAKER).account_index == 737650
+    assert mgr.route_strategy("market_maker").account_index == 281474976497685
+    assert mgr.route_strategy("mm").account_index == 281474976497685
+    assert mgr.route_strategy("points_farming").account_index == 281474976497685
+    assert mgr.route_strategy(SubaccountRole.MARKET_MAKER).account_index == 281474976497685
 
     # Arb routing
-    assert mgr.route_strategy("arbitrage").account_index == 737651
-    assert mgr.route_strategy("cross_dex").account_index == 737651
-    assert mgr.route_strategy("funding_harvester").account_index == 737651
-    assert mgr.route_strategy(SubaccountRole.ARBITRAGE).account_index == 737651
+    assert mgr.route_strategy("arbitrage").account_index == 281474976497686
+    assert mgr.route_strategy("cross_dex").account_index == 281474976497686
+    assert mgr.route_strategy("funding_harvester").account_index == 281474976497686
+    assert mgr.route_strategy(SubaccountRole.ARBITRAGE).account_index == 281474976497686
 
 
 def test_subaccount_manager_state_updates():
@@ -112,8 +112,8 @@ def test_subaccount_manager_rebalance_recommendations():
     # MM has $5 (target 40% = $40 -> -$35 deficit)
     # Arb has $5 (target 20% = $20 -> -$15 deficit)
     mgr.update_state(737649, collateral_usd=90.0, available_margin_usd=90.0)
-    mgr.update_state(737650, collateral_usd=5.0, available_margin_usd=5.0)
-    mgr.update_state(737651, collateral_usd=5.0, available_margin_usd=5.0)
+    mgr.update_state(281474976497685, collateral_usd=5.0, available_margin_usd=5.0)
+    mgr.update_state(281474976497686, collateral_usd=5.0, available_margin_usd=5.0)
 
     recs = mgr.calculate_rebalancing(drift_threshold_pct=0.15, min_transfer_usd=1.0)
     assert len(recs) >= 1
@@ -122,22 +122,23 @@ def test_subaccount_manager_rebalance_recommendations():
     from_indices = [r.from_account_index for r in recs]
     to_indices = [r.to_account_index for r in recs]
     assert 737649 in from_indices
-    assert 737650 in to_indices or 737651 in to_indices
+    assert 281474976497685 in to_indices or 281474976497686 in to_indices
 
 
 @pytest.mark.asyncio
 async def test_subaccount_manager_transfer_collateral():
     mgr = SubaccountManager()
     mgr.update_state(737649, collateral_usd=10.0, available_margin_usd=10.0)
-    mgr.update_state(737650, collateral_usd=2.0, available_margin_usd=2.0)
+    mgr.update_state(281474976497685, collateral_usd=2.0, available_margin_usd=2.0)
 
-    res = await mgr.transfer_collateral(737649, 737650, amount_usd=4.0, is_paper=True)
+    res = await mgr.transfer_collateral(737649, 281474976497685, amount_usd=4.0, is_paper=True)
     assert res["success"] is True
     assert res["amount_usd"] == 4.0
 
     st_sniper = mgr.get_state(737649)
-    st_mm = mgr.get_state(737650)
+    st_mm = mgr.get_state(281474976497685)
     assert st_sniper.collateral_usd == 6.0
+    assert st_mm.collateral_usd == 6.0
     assert st_mm.collateral_usd == 6.0
 
 

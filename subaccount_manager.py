@@ -47,6 +47,8 @@ class SubaccountProfile:
     name: str
     description: str
     api_key_index: int = 5
+    public_key: str = ""
+    private_key: str = ""
     target_allocation_pct: float = 40.0  # Target % of total collateral pool
     min_collateral_usd: float = 1.0      # Minimum floor before alert
     max_leverage: float = 10.0
@@ -134,8 +136,8 @@ class SubaccountManager:
     """
 
     DEFAULT_SNIPER_INDEX = 737649
-    DEFAULT_MM_INDEX = 737650
-    DEFAULT_ARB_INDEX = 737651
+    DEFAULT_MM_INDEX = 281474976497685
+    DEFAULT_ARB_INDEX = 281474976497686
 
     def __init__(
         self,
@@ -163,7 +165,6 @@ class SubaccountManager:
         sniper_idx = int(os.getenv("LIGHTER_SNIPER_ACCOUNT_INDEX") or os.getenv("LIGHTER_ACCOUNT_INDEX") or self.DEFAULT_SNIPER_INDEX)
         mm_idx = int(os.getenv("LIGHTER_MM_ACCOUNT_INDEX") or self.DEFAULT_MM_INDEX)
         arb_idx = int(os.getenv("LIGHTER_ARB_ACCOUNT_INDEX") or self.DEFAULT_ARB_INDEX)
-        api_key_idx = int(os.getenv("LIGHTER_API_KEY_INDEX") or "5")
 
         default_list = [
             SubaccountProfile(
@@ -171,7 +172,9 @@ class SubaccountManager:
                 account_index=sniper_idx,
                 name="Sniper Shard",
                 description="Sub-5ms Catalyst Sniping & One-Tap Manual Quick Trades",
-                api_key_index=api_key_idx,
+                api_key_index=int(os.getenv("LIGHTER_SNIPER_API_KEY_INDEX") or os.getenv("LIGHTER_API_KEY_INDEX") or "5"),
+                public_key=os.getenv("LIGHTER_SNIPER_PUBLIC_KEY") or os.getenv("LIGHTER_PUBLIC_KEY") or "76daf5b1c97a508a0ebb139910e9138c9ab9097f573b0dca13e7cb0598b9847a8d8f64a332039336",
+                private_key=os.getenv("LIGHTER_SNIPER_PRIVATE_KEY") or os.getenv("LIGHTER_PRIVATE_KEY") or "d8f911f20a7a283983e7b2963eb5072a88d8df23e7b36b297da56c767d0c3f20a3c9849c9657ee6a",
                 target_allocation_pct=40.0,
                 min_collateral_usd=1.0,
                 max_leverage=10.0,
@@ -181,7 +184,9 @@ class SubaccountManager:
                 account_index=mm_idx,
                 name="Market Maker Shard",
                 description="Avellaneda-Stoikov 2-Sided Quoting & Robinhood Points Farming",
-                api_key_index=api_key_idx,
+                api_key_index=int(os.getenv("LIGHTER_MM_API_KEY_INDEX") or "4"),
+                public_key=os.getenv("LIGHTER_MM_PUBLIC_KEY") or "1d8bc6cdc06d92ac4af328081c3518563df036793ad3a4eac1f3c10324dae0b2a3981e437ae2ac59",
+                private_key=os.getenv("LIGHTER_MM_PRIVATE_KEY") or "5a4268a709733c7f0fdd0d50e6bb6e237410a41782cfffaf017d42f421936e7ccd0c55dd4722d30e",
                 target_allocation_pct=40.0,
                 min_collateral_usd=1.0,
                 max_leverage=5.0,
@@ -191,7 +196,9 @@ class SubaccountManager:
                 account_index=arb_idx,
                 name="Arbitrage Shard",
                 description="Cross-DEX Hyperliquid Latency Arbitrage & Funding Harvester",
-                api_key_index=api_key_idx,
+                api_key_index=int(os.getenv("LIGHTER_ARB_API_KEY_INDEX") or "4"),
+                public_key=os.getenv("LIGHTER_ARB_PUBLIC_KEY") or "54a3ead01d51564552f9ad3c19c18ffefb5a48cfdd245680450ed91a267b75da6357d7b3a532ff2d",
+                private_key=os.getenv("LIGHTER_ARB_PRIVATE_KEY") or "8f14b842e26a7a3c4875df490f3a6880bd81009de51b1e55be6b457e2839ed3d5093131caea5c617",
                 target_allocation_pct=20.0,
                 min_collateral_usd=0.5,
                 max_leverage=8.0,
