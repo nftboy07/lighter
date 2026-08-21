@@ -114,6 +114,10 @@ from emergency_evacuate import EmergencyFlashEvacuator
 from latency_arbitrage_engine import LatencyLeadArbitrageEngine
 from liquidation_cascade_predictor import LiquidationCascadePredictor
 from compound_reinvestment_engine import DynamicCompoundingOptimizer
+from spoofing_detector import HFTSpoofingDetector
+from monte_carlo_var_simulator import MonteCarloRiskSimulator
+from cross_chain_liquidity_bridger import CrossChainLiquidityBridger
+from vip_tg_twitter_broadcaster import VIPSignalBroadcaster
 
 logger = logging.getLogger("MasterProfitOrchestrator")
 
@@ -201,6 +205,10 @@ class MasterProfitOrchestrator:
         self.latency_arb_engine = LatencyLeadArbitrageEngine()
         self.cascade_predictor = LiquidationCascadePredictor()
         self.compounding_optimizer = DynamicCompoundingOptimizer()
+        self.spoofing_detector = HFTSpoofingDetector()
+        self.var_simulator = MonteCarloRiskSimulator()
+        self.cross_chain_bridger = CrossChainLiquidityBridger()
+        self.vip_broadcaster = VIPSignalBroadcaster()
 
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
