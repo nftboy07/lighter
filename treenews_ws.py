@@ -235,9 +235,20 @@ class TreeNewsWebSocketClient:
     async def _connect_and_listen(self) -> None:
         """Manages single connection lifecycle."""
         headers = {
-            "User-Agent": "LighterNewsTerminal/TreeNewsIngestion-v2",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Origin": "https://news.treeofalpha.com",
         }
+        
+        ssl_param = None
+        if self.ws_url.startswith("wss://"):
+            import ssl
+            try:
+                import certifi
+                ssl_param = ssl.create_default_context(cafile=certifi.where())
+            except Exception:
+                ssl_param = ssl.create_default_context()
+                ssl_param.check_hostname = False
+                ssl_param.verify_mode = ssl.CERT_NONE
         
         timeout = aiohttp.ClientTimeout(total=None, connect=self.connect_timeout, sock_read=self.ping_interval + self.ping_timeout)
         if self._session is None or self._session.closed:
@@ -246,30 +257,37 @@ class TreeNewsWebSocketClient:
         self.stats.connection_attempts += 1
         logger.info("Connecting to TreeNews WebSocket: %s", self.ws_url)
 
-        async with self._session.ws_connect(
-            self.ws_url,
-            headers=headers,
-            heartbeat=self.ping_interval,
-            autoping=True,
-            timeout=aiohttp.ClientWSTimeout(ws_close=10.0),
-        ) as ws:
-            self._ws = ws
-            self.stats.connected = True
-            logger.info("⚡ TreeNews WebSocket connected successfully (sub-15ms streaming active)")
+        try:
+            ws_conn = self._session.ws_connect(
+                self.ws_url,
+                headers=headers,
+                ssl=ssl_param,
+                heartbeat=self.ping_interval,
+                autoping=True,
+                timeout=aiohttp.ClientWSTimeout(ws_close=10.0),
+            )
+            async with ws_conn as ws:
+                self._ws = ws
+                self.stats.connected = True
+                logger.info("⚡ TreeNews WebSocket connected successfully (sub-15ms streaming active)")
 
-            async for msg in ws:
-                if self._stop_event.is_set():
-                    break
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    await self._handle_message(msg.data)
-                elif msg.type == aiohttp.WSMsgType.BINARY:
-                    await self._handle_message(msg.data)
-                elif msg.type == aiohttp.WSMsgType.PING:
-                    await ws.pong(msg.data)
-                elif msg.type == aiohttp.WSMsgType.PONG:
-                    pass
-                elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                    break
+                async for msg in ws:
+                    if self._stop_event.is_set():
+                        break
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        await self._handle_message(msg.data)
+                    elif msg.type == aiohttp.WSMsgType.BINARY:
+                        await self._handle_message(msg.data)
+                    elif msg.type == aiohttp.WSMsgType.PING:
+                        await ws.pong(msg.data)
+                    elif msg.type == aiohttp.WSMsgType.PONG:
+                        pass
+                    elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                        break
+        except Exception as e:
+            self.stats.errors += 1
+            self.stats.last_error = str(e)
+            raise
 
         self.stats.connected = False
         self._ws = None

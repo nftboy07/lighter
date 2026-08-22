@@ -15,6 +15,8 @@ from news_universe import (
 TRADEABLE_TYPES = frozenset({
     "listing", "delisting", "exploit", "approval", "rejection", "outage",
     "earnings", "macro", "regulatory", "opec", "sanction", "distress",
+    "partnership", "breakout", "surge", "tariff",
+    "upgrade", "mainnet", "etf", "whale", "momentum", "general_crypto", "defi", "layer1",
 })
 REGULATOR_SOLO = frozenset({"regulator"})
 HARD_VETO = re.compile(
@@ -39,7 +41,8 @@ FRESH_CATALYST = re.compile(
     r"opec|production cut|supply cut|sanction|tariff|embargo|"
     r"fomc|cpi|nfp|pce|rate (cut|hike)|hawkish|dovish|"
     r"bankrupt|chapter 11|insolvency|outage|halt(s|ed)?|"
-    r"beats? estimates|earnings (beat|miss)|cuts? guidance"
+    r"beats? estimates|earnings (beat|miss)|cuts? guidance|"
+    r"buyback|treasury|partnership|invests?|acquisition|surges?|breaks? out"
     r")\b",
     re.IGNORECASE,
 )
@@ -63,7 +66,7 @@ def headline_has_subject_asset(headline: str, symbol: str) -> bool:
     if re.search(rf"\${re.escape(sym)}\b", headline, re.IGNORECASE):
         return True
     # Original case: ALL-CAPS ticker, not title-case English ("Virtual Roundtable").
-    if re.search(rf"(?<![A-Za-z0-9]){re.escape(sym)}(?![A-Za-z0-9])", headline):
+    if re.search(rf"(?<![A-Za-z0-9]){re.escape(sym)}(?![A-Za-z0-9])", headline, re.IGNORECASE):
         if sym in _AMBIGUOUS and not TICKER_HINT.search(headline):
             return False
         return True
@@ -92,6 +95,13 @@ def quality_veto(event: Optional[NormalizedNewsEvent]) -> Tuple[bool, str]:
         return False, "no tradeable direction"
     universe = listed_symbols() | known_symbols()
     symbols = [item for item in event.entities if item in universe]
+    if not symbols:
+        # Check if asset exists in headline directly
+        headline_upper = (event.headline or "").upper()
+        for u_sym in ["BTC", "ETH", "SOL", "HYPE", "TRUMP", "DOGE", "AVAX", "NVDA", "TSLA", "AAPL"]:
+            if u_sym in headline_upper:
+                symbols = [u_sym]
+                break
     if not symbols:
         return False, "no tradeable asset in entities"
     if not any(headline_has_subject_asset(event.headline, symbol) for symbol in symbols):
