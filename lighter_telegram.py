@@ -1200,16 +1200,22 @@ class LighterTelegramBot:
                 user_id = u["message"]["from"]["id"]
                 text = u["message"]["text"]
 
-                # Fire typing indicator concurrently in background (0ms delay to processing)
+                # Fire typing indicator concurrently in background
                 asyncio.create_task(
                     session.post(
                         f"https://api.telegram.org/bot{self.token}/sendChatAction",
                         json={"chat_id": chat_id, "action": "typing"},
-                        timeout=aiohttp.ClientTimeout(total=0.8),
+                        timeout=aiohttp.ClientTimeout(total=1.0),
                     )
                 )
 
-                reply_text, keyboard = await self.handle_user_action(text, user_id)
+                try:
+                    reply_text, keyboard = await self.handle_user_action(text, user_id)
+                except Exception as ex:
+                    logger.error(f"[TG Command Error] {ex}", exc_info=True)
+                    reply_text = f"⚠️ <b>Command Execution Error:</b> <code>{ex}</code>"
+                    keyboard = self.build_main_keyboard()
+
                 payload = {
                     "chat_id": chat_id,
                     "text": reply_text,
@@ -1222,7 +1228,7 @@ class LighterTelegramBot:
                 async with session.post(
                     f"https://api.telegram.org/bot{self.token}/sendMessage",
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=2.0),
+                    timeout=aiohttp.ClientTimeout(total=3.0),
                 ) as resp:
                     if resp.status != 200:
                         payload.pop("parse_mode", None)
@@ -1230,7 +1236,7 @@ class LighterTelegramBot:
                         await session.post(
                             f"https://api.telegram.org/bot{self.token}/sendMessage",
                             json=payload,
-                            timeout=aiohttp.ClientTimeout(total=1.5),
+                            timeout=aiohttp.ClientTimeout(total=2.0),
                         )
 
             elif "message" in u and "voice" in u["message"]:
@@ -1258,7 +1264,7 @@ class LighterTelegramBot:
                 user_id = cq["from"]["id"]
                 data_action = cq.get("data", "")
 
-                # 1. IMMEDIATELY answer callback query so button stops loading/spinning
+                # 1. Answer callback query immediately
                 try:
                     await session.post(
                         f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
@@ -1269,7 +1275,12 @@ class LighterTelegramBot:
                     pass
 
                 # 2. Process action and get reply text
-                reply_text, keyboard = await self.handle_user_action(data_action, user_id)
+                try:
+                    reply_text, keyboard = await self.handle_user_action(data_action, user_id)
+                except Exception as ex:
+                    logger.error(f"[TG Callback Error] {ex}", exc_info=True)
+                    reply_text = f"⚠️ <b>Action Execution Error:</b> <code>{ex}</code>"
+                    keyboard = self.build_main_keyboard()
 
                 # 3. Try to edit original message in-place
                 edited = False
@@ -1292,7 +1303,7 @@ class LighterTelegramBot:
                         ) as resp:
                             if resp.status == 200:
                                 edited = True
-                            elif resp.status != 400:  # If failed with something other than 400 (not modified)
+                            elif resp.status != 400:
                                 edit_payload.pop("parse_mode", None)
                                 edit_payload["text"] = re.sub(r"<[^>]+>", "", reply_text)
                                 async with session.post(
@@ -1306,7 +1317,7 @@ class LighterTelegramBot:
                         pass
 
                 # 4. If edit failed or was not possible, send fresh message card
-                if not edited and not msg_id:
+                if not edited:
                     send_payload = {
                         "chat_id": chat_id,
                         "text": reply_text,
@@ -1324,7 +1335,7 @@ class LighterTelegramBot:
                     except Exception:
                         pass
         except Exception as e:
-            logger.debug(f"[Update Handler Error]: {e}")
+            logger.error(f"[Update Handler Fatal Error]: {e}", exc_info=True)
 
     async def run_fast_polling(self):
         if not self.token:
@@ -1354,11 +1365,15 @@ class LighterTelegramBot:
                             for u in updates:
                                 offset = u["update_id"] + 1
                                 asyncio.create_task(self._handle_update(u, session))
+                        else:
+                            text = await resp.text()
+                            logger.error("❌ Telegram getUpdates returned HTTP %s: %s", resp.status, text)
+                            await asyncio.sleep(2.0)
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
-                    logger.debug(f"[Poll Exception]: {e}")
-                    await asyncio.sleep(0.1)
+                    logger.error(f"[Poll Exception]: {e}")
+                    await asyncio.sleep(0.5)
 
     def start_polling_in_background(self):
         def _thread():

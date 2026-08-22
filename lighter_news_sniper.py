@@ -2564,7 +2564,7 @@ class LighterNewsSniperBot:
                 "db": getattr(self, "db", None),
             }
             self.tg_bot = LighterTelegramBot(tg_ctx)
-            self.tg_bot.start_polling_in_background()
+            asyncio.create_task(self.tg_bot.run_fast_polling())
             logger.info("⚡ [Telegram] Integrated Ultra-Fast Zero-Lag Poller active (/status, /balance, /positions, /help)")
         except Exception as e:
             logger.error("Failed to start integrated Telegram poller: %s", e)
