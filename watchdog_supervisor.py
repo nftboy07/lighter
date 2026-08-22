@@ -91,16 +91,16 @@ def run_supervisor_loop():
 
                     # Check if hourly vitality heartbeat is due
                     now = time.time()
-                if now - last_heartbeat >= HEARTBEAT_INTERVAL_SEC:
-                    last_heartbeat = now
-                    send_telegram_alert(
-                        f"🟢 <b>24/7 BOT VITALITY HEARTBEAT</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"⚡ <b>State:</b> <code>ONLINE & TRADING (PID: {process.pid})</code>\n"
-                        f"🛡️ <b>Health:</b> <code>100% OK (Zero Stalls)</code>\n"
-                        f"🔄 <b>Uptime Watchdog:</b> <code>Auto-Healing Active</code>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━"
-                    )
+                    if now - last_heartbeat >= HEARTBEAT_INTERVAL_SEC:
+                        last_heartbeat = now
+                        send_telegram_alert(
+                            f"🟢 <b>24/7 BOT VITALITY HEARTBEAT</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"⚡ <b>State:</b> <code>ONLINE & TRADING (PID: {process.pid})</code>\n"
+                            f"🛡️ <b>Health:</b> <code>100% OK (Zero Stalls)</code>\n"
+                            f"🔄 <b>Uptime Watchdog:</b> <code>Auto-Healing Active</code>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━"
+                        )
 
             # If process terminated, log exit code and auto-recover
             exit_code = process.returncode
