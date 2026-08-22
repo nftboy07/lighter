@@ -154,7 +154,8 @@ class LighterNewsRiskGate:
         if self.live and self.confirmed_only and not confirmed:
             reasons.append("news event lacks independent-source confirmation")
         if momentum_confirmed is False:
-            reasons.append("cross-exchange momentum confirmation failed (no Binance/Bybit volume spike)")
+            if getattr(self, "require_momentum_confirmation", True):
+                reasons.append("cross-exchange momentum confirmation failed (no Binance/Bybit volume spike)")
         elif momentum_confirmed is None and getattr(self, "momentum_filter", None) is not None and event is not None and asset:
             try:
                 sentiment = "BULLISH" if side.startswith("BUY") else "BEARISH" if side.startswith("SELL") else "NEUTRAL"

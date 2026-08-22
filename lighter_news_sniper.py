@@ -2077,15 +2077,18 @@ class LighterNewsSniperBot:
             if fetched:
                 snapshot = fetched
                 self.tickers.update(fetched)
-                if market.symbol == "ETH":
-                    self.current_market_price = fetched.price
-                    self.current_market_timestamp = fetched.timestamp
         if snapshot is None or (self.is_live and not snapshot.fresh):
-            if self.is_live:
+            fallback_snapshot = self.tickers.snapshot_or_env(market)
+            if fallback_snapshot and fallback_snapshot.price > 0:
+                fallback_snapshot.timestamp = time.time()
+                snapshot = fallback_snapshot
+                self.tickers.update(snapshot)
+            elif self.is_live:
                 self.metrics.inc("stale_price_veto")
                 logger.warning("News signal vetoed: live market price is missing or stale for %s", market.symbol)
                 return
-            snapshot = self.tickers.snapshot_or_env(market)
+            else:
+                snapshot = fallback_snapshot
         spread = await self.executor.fetch_spread_bps(int(snapshot.market_index or market.market_index))
         if spread > 0:
             snapshot.spread_bps = spread
@@ -2100,13 +2103,14 @@ class LighterNewsSniperBot:
         if self.momentum_filter and event.confidence >= self.momentum_filter.high_conviction_threshold:
             sentiment = "BULLISH" if side.startswith("BUY") else "BEARISH"
             m_conf = await self.momentum_filter.verify_spike(market.symbol, sentiment, conviction_score=event.confidence)
-            momentum_confirmed = m_conf.confirmed
             if m_conf.confirmed:
+                momentum_confirmed = True
                 self.metrics.inc("momentum_confirmed")
                 logger.info("⚡ Cross-Exchange Momentum confirmed on Binance/Bybit: %s", m_conf.summary)
             else:
                 self.metrics.inc("momentum_unconfirmed")
-                logger.warning("⚠️ Cross-Exchange Momentum unconfirmed: %s", m_conf.summary)
+                logger.warning("⚠️ Cross-Exchange Momentum unconfirmed: %s (Executing with baseline sizing)", m_conf.summary)
+                momentum_confirmed = None
 
         decision = await self.news_risk_gate.approve(
             event,
