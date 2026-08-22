@@ -2573,6 +2573,21 @@ class LighterNewsSniperBot:
         asyncio.create_task(self._heartbeat_loop())
         asyncio.create_task(self._universe_loop())
 
+        # Launch Integrated Fast Telegram Poller for instant interactive command responses
+        try:
+            from lighter_telegram import LighterTelegramBot
+            tg_ctx = {
+                "executor": self.executor,
+                "bot": self,
+                "markets": self.markets,
+                "db": getattr(self, "db", None),
+            }
+            self.tg_bot = LighterTelegramBot(tg_ctx)
+            asyncio.create_task(self.tg_bot.run_fast_polling())
+            logger.info("⚡ [Telegram] Integrated Ultra-Fast Zero-Lag Poller active (/status, /balance, /positions, /help)")
+        except Exception as e:
+            logger.error("Failed to start integrated Telegram poller: %s", e)
+
         try:
             while True:
                 await asyncio.sleep(1.0)
