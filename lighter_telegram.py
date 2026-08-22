@@ -1253,44 +1253,76 @@ class LighterTelegramBot:
             elif "callback_query" in u:
                 cq = u["callback_query"]
                 cq_id = cq["id"]
-                chat_id = cq["message"]["chat"]["id"]
-                msg_id = cq["message"]["message_id"]
+                chat_id = cq.get("message", {}).get("chat", {}).get("id") or cq["from"]["id"]
+                msg_id = cq.get("message", {}).get("message_id")
                 user_id = cq["from"]["id"]
                 data_action = cq.get("data", "")
 
-                # IMMEDIATELY answer callback query in parallel (< 2ms) so button stops spinning
-                asyncio.create_task(
-                    session.post(
+                # 1. IMMEDIATELY answer callback query so button stops loading/spinning
+                try:
+                    await session.post(
                         f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                         json={"callback_query_id": cq_id},
-                        timeout=aiohttp.ClientTimeout(total=0.8),
+                        timeout=aiohttp.ClientTimeout(total=2.0),
                     )
-                )
+                except Exception:
+                    pass
 
+                # 2. Process action and get reply text
                 reply_text, keyboard = await self.handle_user_action(data_action, user_id)
-                edit_payload = {
-                    "chat_id": chat_id,
-                    "message_id": msg_id,
-                    "text": reply_text,
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
-                }
-                if keyboard:
-                    edit_payload["reply_markup"] = keyboard
 
-                async with session.post(
-                    f"https://api.telegram.org/bot{self.token}/editMessageText",
-                    json=edit_payload,
-                    timeout=aiohttp.ClientTimeout(total=2.0),
-                ) as resp:
-                    if resp.status != 200:
-                        edit_payload.pop("parse_mode", None)
-                        edit_payload["text"] = re.sub(r"<[^>]+>", "", reply_text)
-                        await session.post(
+                # 3. Try to edit original message in-place
+                edited = False
+                if msg_id:
+                    edit_payload = {
+                        "chat_id": chat_id,
+                        "message_id": msg_id,
+                        "text": reply_text,
+                        "parse_mode": "HTML",
+                        "disable_web_page_preview": True,
+                    }
+                    if keyboard:
+                        edit_payload["reply_markup"] = keyboard
+
+                    try:
+                        async with session.post(
                             f"https://api.telegram.org/bot{self.token}/editMessageText",
                             json=edit_payload,
-                            timeout=aiohttp.ClientTimeout(total=1.5),
+                            timeout=aiohttp.ClientTimeout(total=2.0),
+                        ) as resp:
+                            if resp.status == 200:
+                                edited = True
+                            elif resp.status != 400:  # If failed with something other than 400 (not modified)
+                                edit_payload.pop("parse_mode", None)
+                                edit_payload["text"] = re.sub(r"<[^>]+>", "", reply_text)
+                                async with session.post(
+                                    f"https://api.telegram.org/bot{self.token}/editMessageText",
+                                    json=edit_payload,
+                                    timeout=aiohttp.ClientTimeout(total=1.5),
+                                ) as resp2:
+                                    if resp2.status == 200:
+                                        edited = True
+                    except Exception:
+                        pass
+
+                # 4. If edit failed or was not possible, send fresh message card
+                if not edited and not msg_id:
+                    send_payload = {
+                        "chat_id": chat_id,
+                        "text": reply_text,
+                        "parse_mode": "HTML",
+                        "disable_web_page_preview": True,
+                    }
+                    if keyboard:
+                        send_payload["reply_markup"] = keyboard
+                    try:
+                        await session.post(
+                            f"https://api.telegram.org/bot{self.token}/sendMessage",
+                            json=send_payload,
+                            timeout=aiohttp.ClientTimeout(total=2.0),
                         )
+                    except Exception:
+                        pass
         except Exception as e:
             logger.debug(f"[Update Handler Error]: {e}")
 
