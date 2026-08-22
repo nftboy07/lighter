@@ -295,3 +295,14 @@ class MiniAppHTTPServer:
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
+
+
+if __name__ == "__main__":
+    app = web.Application()
+    server = MiniAppHTTPServer(host="0.0.0.0", port=8080)
+    app.router.add_get("/", server.handle_index)
+    app.router.add_get("/health", server.handle_api_status)
+    app.router.add_get("/status", server.handle_api_status)
+    print("📱 Serving Telegram MiniApp on http://0.0.0.0:8080")
+    web.run_app(app, host="0.0.0.0", port=8080)
+
