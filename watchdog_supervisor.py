@@ -19,6 +19,11 @@ import sys
 import time
 from typing import Optional
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 LOG_DIR = "C:/LighterBot" if os.path.exists("C:/LighterBot") else "."
 LOG_FILE = os.path.join(LOG_DIR, "watchdog_supervisor.log")
 
@@ -26,7 +31,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [WatchdogSupervisor] %(message)s",
     handlers=[
-        logging.FileHandler(LOG_FILE, mode="a"),
+        logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8"),
         logging.StreamHandler(sys.stdout),
     ],
 )
@@ -63,6 +68,10 @@ def run_supervisor_loop():
     last_heartbeat = time.time()
     restart_count = 0
 
+    sub_env = dict(os.environ)
+    sub_env["PYTHONIOENCODING"] = "utf-8"
+    sub_env["PYTHONUTF8"] = "1"
+
     while True:
         try:
             logger.info("🚀 Launching bot process: %s %s", BOT_SCRIPT, " ".join(BOT_ARGS))
@@ -72,7 +81,10 @@ def run_supervisor_loop():
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
+                env=sub_env,
             )
 
             # Monitor while running
