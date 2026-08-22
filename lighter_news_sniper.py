@@ -1942,6 +1942,7 @@ class LighterNewsSniperBot:
             from lighter_telegram import LighterTelegramBot
             from lighter_db import LighterDBManager
             self.db = LighterDBManager()
+            self.recent_news = []
             self.tg_bot = LighterTelegramBot(
                 bot_context={
                     "is_paper_mode": (not self.is_live) or self.shadow,
@@ -1950,14 +1951,13 @@ class LighterNewsSniperBot:
                     "executor": self.executor,
                     "news_manager": self.news_manager,
                     "bot_instance": self,
+                    "bot": self,
                     "intent_queue": self.intent_queue,
                     "positions": self.positions,
                     "metrics": self.metrics,
                     "markets": self.markets,
                 }
             )
-            self.tg_bot.start_polling_in_background()
-            logger.info("📱 [TG] High-Speed Interactive Telegram Bot active.")
         except Exception as tge:
             logger.warning(f"Telegram listener init warning: {tge}")
 
@@ -2028,6 +2028,27 @@ class LighterNewsSniperBot:
     async def _handle_news_event(self, news: NewsItem, event: Optional[NormalizedNewsEvent] = None):
         if event is None:
             return
+        if not hasattr(self, "recent_news"):
+            self.recent_news = []
+        self.recent_news.append(event)
+        if len(self.recent_news) > 50:
+            self.recent_news.pop(0)
+
+        # Broadcast breaking high-conviction headlines to Telegram if enabled
+        if os.getenv("TELEGRAM_NEWS_BROADCAST", "true").lower() in ("true", "1", "yes") and event.confidence >= 0.75:
+            emoji = "🟢" if event.direction == "BULLISH" else ("🔴" if event.direction == "BEARISH" else "⚪")
+            try:
+                from lighter_telegram import tg_send
+                tg_send(
+                    f"📡 <b>BREAKING NEWS RADAR</b> (<i>{event.source_id.upper()}</i>)\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{emoji} <b>{event.direction}</b> | Conviction: <code>{int(event.confidence * 100)}%</code>\n"
+                    f"📰 <b>{event.headline}</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━"
+                )
+            except Exception:
+                pass
+
         self.metrics.inc("ingested")
         self.audit.emit("observed", event.event_id, source=event.source_id, type=event.event_type, headline=event.headline)
         from news_quality import quality_veto
