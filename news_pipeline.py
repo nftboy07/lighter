@@ -188,7 +188,11 @@ class NewsConfirmationEngine:
         if all(item.source_id != event.source_id for item in members):
             members.append(event)
         contradiction = self._contradiction(event, event_type, direction)
-        confidence = min(0.99, event.source_score * 0.6 + min(0.4, len(members) * 0.2))
+        base_confidence = event.source_score * 0.65 + min(0.35, len(members) * 0.15)
+        if event.source_score >= 0.80 or event.category in {"official", "regulator", "exchange"}:
+            confidence = min(0.99, max(0.75, base_confidence))
+        else:
+            confidence = min(0.99, base_confidence)
         if contradiction:
             confidence = min(confidence, 0.35)
         if event.official_verified:
@@ -216,7 +220,7 @@ class NewsConfirmationEngine:
         independent_sources = {member.source_id for member in members}
         if not require_two_sources(event, len(independent_sources), self.min_sources):
             return False
-        return event.confidence >= 0.70 and event.materiality >= 0.50
+        return event.confidence >= 0.68 and event.materiality >= 0.45
 
     def invalidate_cluster(self, cluster_id: str) -> List[NormalizedNewsEvent]:
         members = self._clusters.get(cluster_id, [])

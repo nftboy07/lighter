@@ -1807,7 +1807,7 @@ class NewsIngestionManager:
         self.on_news_callback = on_news_callback
         self.is_running = False
         self.registry = NewsSourceRegistry()
-        self.pipeline = NewsPipeline(db_path=db_path)
+        self.pipeline = NewsPipeline(db_path=db_path, min_sources=int(os.getenv("NEWS_MIN_SOURCES", "1")))
         self.scheduler = NewsSourceScheduler(
             self.registry,
             self._handle_records,

@@ -110,6 +110,8 @@ def quality_veto(event: Optional[NormalizedNewsEvent]) -> Tuple[bool, str]:
 
 
 def require_two_sources(event: NormalizedNewsEvent, independent_source_count: int, min_sources: int) -> bool:
-    if event.category in REGULATOR_SOLO and event.official_verified and event.event_type in {"approval", "rejection", "regulatory", "macro"}:
-        return independent_source_count >= 1
-    return independent_source_count >= max(2, min_sources)
+    if event.source_score >= 0.75 or event.category in {"official", "regulator", "exchange"} or event.official_verified:
+        return independent_source_count >= min_sources
+    if event.event_type in {"listing", "approval", "exploit", "outage", "surge", "breakdown", "etf", "upgrade"}:
+        return independent_source_count >= min_sources
+    return independent_source_count >= min_sources
