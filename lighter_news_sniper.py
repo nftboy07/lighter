@@ -2549,31 +2549,8 @@ class LighterNewsSniperBot:
         logger.info("=" * 60)
         logger.info(f"  LIGHTER NEWS & MANUAL SNIPER BOT ({mode})")
         logger.info("=" * 60)
-        ready, reasons = self.news_risk_gate.readiness(
-            self._authorized(),
-            MarketSnapshot("ETH", self.current_market_price, timestamp=time.time()),
-            bool(self.markets.enabled()),
-        )
-        if self.is_live and not ready:
-            logger.error("Live readiness failed: %s", "; ".join(reasons))
-        books = await self.executor.fetch_order_catalog()
-        if books:
-            self.markets.ingest_catalog(books)
-            logger.info("Loaded %s Lighter markets (crypto/equities/FX/commodities)", len(self.markets.enabled()))
-        if self.is_live:
-            await self.executor._ensure_signer()
-            if self.executor.signer_client is None:
-                logger.error("Live mode requested but SignerClient is unavailable — no orders will send")
-            else:
-                logger.info("Live signer ready for account #%s", self.executor.account_index)
-            await self.reconcile_exchange()
-        await self.news_manager.start()
-        asyncio.create_task(self._price_loop())
-        asyncio.create_task(self._tp_watchdog_loop())
-        asyncio.create_task(self._heartbeat_loop())
-        asyncio.create_task(self._universe_loop())
 
-        # Launch Integrated Fast Telegram Poller for instant interactive command responses
+        # 1. Launch Integrated Fast Telegram Poller IMMEDIATELY for zero-lag command response
         try:
             from lighter_telegram import LighterTelegramBot
             tg_ctx = {
@@ -2587,6 +2564,38 @@ class LighterNewsSniperBot:
             logger.info("⚡ [Telegram] Integrated Ultra-Fast Zero-Lag Poller active (/status, /balance, /positions, /help)")
         except Exception as e:
             logger.error("Failed to start integrated Telegram poller: %s", e)
+
+        ready, reasons = self.news_risk_gate.readiness(
+            self._authorized(),
+            MarketSnapshot("ETH", self.current_market_price, timestamp=time.time()),
+            bool(self.markets.enabled()),
+        )
+        if self.is_live and not ready:
+            logger.error("Live readiness failed: %s", "; ".join(reasons))
+        try:
+            books = await asyncio.wait_for(self.executor.fetch_order_catalog(), timeout=5.0)
+            if books:
+                self.markets.ingest_catalog(books)
+                logger.info("Loaded %s Lighter markets (crypto/equities/FX/commodities)", len(self.markets.enabled()))
+        except Exception as e:
+            logger.warning("Order catalog fetch non-blocking fallback: %s", e)
+
+        if self.is_live:
+            try:
+                await asyncio.wait_for(self.executor._ensure_signer(), timeout=5.0)
+                if self.executor.signer_client is None:
+                    logger.error("Live mode requested but SignerClient is unavailable — no orders will send")
+                else:
+                    logger.info("Live signer ready for account #%s", self.executor.account_index)
+                await asyncio.wait_for(self.reconcile_exchange(), timeout=5.0)
+            except Exception as e:
+                logger.warning("Signer / reconciliation fallback: %s", e)
+
+        await self.news_manager.start()
+        asyncio.create_task(self._price_loop())
+        asyncio.create_task(self._tp_watchdog_loop())
+        asyncio.create_task(self._heartbeat_loop())
+        asyncio.create_task(self._universe_loop())
 
         try:
             while True:
