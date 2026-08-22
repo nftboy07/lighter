@@ -16,7 +16,7 @@ TRADEABLE_TYPES = frozenset({
     "listing", "delisting", "exploit", "approval", "rejection", "outage",
     "earnings", "macro", "regulatory", "opec", "sanction", "distress",
     "partnership", "breakout", "surge", "breakdown", "tariff",
-    "upgrade", "mainnet", "etf", "whale", "momentum", "general_crypto", "defi", "layer1",
+    "upgrade", "mainnet", "etf", "whale", "arbitrage", "momentum", "general_crypto", "defi", "layer1",
 })
 REGULATOR_SOLO = frozenset({"regulator"})
 HARD_VETO = re.compile(

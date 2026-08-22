@@ -1820,6 +1820,11 @@ class NewsIngestionManager:
             self.whale_tracker = HyperliquidWhaleTracker(on_whale_signal=self._handle_whale_signal)
         except Exception:
             self.whale_tracker = None
+        try:
+            from cross_dex_arbitrage import CrossDexArbitrageEngine
+            self.cross_dex_arb = CrossDexArbitrageEngine(on_opportunity=self._handle_arb_opportunity)
+        except Exception:
+            self.cross_dex_arb = None
 
     async def start(self):
         self.is_running = True
@@ -1832,6 +1837,9 @@ class NewsIngestionManager:
         if self.whale_tracker and os.getenv("HL_WHALES_ENABLED", "true").lower() == "true":
             await self.whale_tracker.start()
             logger.info("🐋 [NEWS] Hyperliquid Smart Money & Whale Scanner active (Tape + Leaderboard)")
+        if self.cross_dex_arb and os.getenv("CROSS_DEX_ARB_ENABLED", "true").lower() == "true":
+            await self.cross_dex_arb.start()
+            logger.info("⚡ [ARB] Cross-DEX Hyperliquid Price-Lag Arbitrage Engine active (25 bps lead detector)")
 
     async def stop(self):
         self.is_running = False
@@ -1839,6 +1847,40 @@ class NewsIngestionManager:
         await self.treenews_ws.stop()
         if self.whale_tracker:
             await self.whale_tracker.stop()
+        if self.cross_dex_arb:
+            await self.cross_dex_arb.stop()
+
+    async def _handle_arb_opportunity(self, opp: Any):
+        """Cross-DEX price-lag arbitrage signal handler."""
+        if not getattr(opp, "is_actionable", False):
+            return
+        asset = str(opp.asset).upper()
+        dir_val = getattr(opp.direction, "value", str(opp.direction))
+        is_buy = dir_val.startswith("BUY")
+        side = "BUY" if is_buy else "SELL"
+        direction = "BULLISH" if is_buy else "BEARISH"
+        
+        arb_event = NormalizedNewsEvent(
+            event_id=f"arb_{asset}_{int(time.time()*1000)}",
+            source_id="cross_dex_arbitrage",
+            publisher="HyperliquidLeadArb",
+            headline=f"⚡ Hyperliquid Leads zkLighter: {asset} {side} (+{opp.spread_bps:.1f} bps)",
+            body=f"Price-lag arbitrage: HL=${opp.hl_price:,.2f} vs zkL=${opp.zklighter_mid:,.2f} (Net Edge: {opp.net_edge_bps:.1f} bps)",
+            event_type="arbitrage",
+            direction=direction,
+            confidence=0.92,
+            entities=[asset],
+            url="",
+            cluster_id=f"arb_{asset}_{direction}",
+        )
+        item = NewsItem(
+            source="CrossDexArbitrage",
+            headline=arb_event.headline,
+            body=arb_event.body,
+            timestamp=time.time(),
+            url="",
+        )
+        await self.on_news_callback(item, arb_event)
 
     async def _handle_whale_signal(self, sig: Dict[str, Any]):
         """Whale radar auto-execution when smart-money fills large orders."""

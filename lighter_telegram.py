@@ -1446,6 +1446,8 @@ class LighterTelegramBot:
             except Exception as e:
                 logger.debug(f"[TG Queue Clean Init]: {e}")
 
+            asyncio.create_task(self._daily_ai_briefing_loop())
+
             while self.is_running:
                 try:
                     url = f"https://api.telegram.org/bot{self.token}/getUpdates?offset={offset}&timeout=10"
@@ -1465,6 +1467,34 @@ class LighterTelegramBot:
                 except Exception as e:
                     logger.error(f"[Poll Exception]: {e}")
                     await asyncio.sleep(0.5)
+
+    async def _daily_ai_briefing_loop(self):
+        """Dispatches automated 24h Executive AI Morning Briefings to Telegram and Poke AI."""
+        last_briefing_date = None
+        target_hour = int(os.getenv("DAILY_BRIEFING_HOUR_UTC", "8"))
+        while self.is_running:
+            try:
+                now_utc = datetime.now(timezone.utc)
+                today_str = now_utc.strftime("%Y-%m-%d")
+                if now_utc.hour == target_hour and last_briefing_date != today_str:
+                    last_briefing_date = today_str
+                    report_msg, _ = await self._generate_daily_pnl_report()
+                    briefing_card = (
+                        "🌅 <b>DAILY EXECUTIVE AI BRIEFING</b>\n"
+                        f"📅 <i>{now_utc.strftime('%A, %B %d, %Y (%H:%M UTC)')}</i>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        + report_msg
+                    )
+                    tg_send(briefing_card)
+                    try:
+                        from poke_notifier import poke_send
+                        poke_send(f"[Daily AI Briefing] {today_str}\n{report_msg}")
+                    except Exception:
+                        pass
+                    logger.info("🌅 [Briefing] Dispatched Daily AI Morning Briefing to Telegram & Poke AI")
+            except Exception as e:
+                logger.debug(f"[Briefing Loop Exception]: {e}")
+            await asyncio.sleep(60.0)
 
     def start_polling_in_background(self):
         def _thread():
