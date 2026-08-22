@@ -75,24 +75,22 @@ def run_supervisor_loop():
     while True:
         try:
             logger.info("🚀 Launching bot process: %s %s", BOT_SCRIPT, " ".join(BOT_ARGS))
-            process = subprocess.Popen(
-                [PYTHON_EXE, BOT_SCRIPT] + BOT_ARGS,
-                cwd="C:/LighterBot",
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                env=sub_env,
-            )
+            sniper_log_path = os.path.join(LOG_DIR, "sniper_app.log")
+            with open(sniper_log_path, "a", encoding="utf-8", errors="replace") as log_f:
+                process = subprocess.Popen(
+                    [PYTHON_EXE, BOT_SCRIPT] + BOT_ARGS,
+                    cwd="C:/LighterBot" if os.path.exists("C:/LighterBot") else ".",
+                    stdout=log_f,
+                    stderr=subprocess.STDOUT,
+                    env=sub_env,
+                )
 
-            # Monitor while running
-            while process.poll() is None:
-                time.sleep(10)
+                # Monitor while running
+                while process.poll() is None:
+                    time.sleep(5)
 
-                # Check if hourly vitality heartbeat is due
-                now = time.time()
+                    # Check if hourly vitality heartbeat is due
+                    now = time.time()
                 if now - last_heartbeat >= HEARTBEAT_INTERVAL_SEC:
                     last_heartbeat = now
                     send_telegram_alert(
