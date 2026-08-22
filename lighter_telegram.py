@@ -1324,5 +1324,17 @@ class LighterTelegramBot:
         def _thread():
             asyncio.run(self.run_fast_polling())
 
-        t = threading.Thread(target=_thread, daemon=True)
+        t = threading.Thread(target=_thread, daemon=True, name="TelegramPollerThread")
         t.start()
+
+
+if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    bot = LighterTelegramBot({})
+    print("⚡ Starting Standalone Zero-Lag Telegram Bot...")
+    try:
+        asyncio.run(bot.run_fast_polling())
+    except KeyboardInterrupt:
+        print("Telegram bot shutting down...")
+
