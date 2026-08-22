@@ -399,7 +399,7 @@ class LighterTelegramBot:
         self.sl_pct = 1.5
         self.cached_collateral = {
             "account_index": int(os.getenv("LIGHTER_ACCOUNT_INDEX", 737649)),
-            "collateral_usd": 5.5208,
+            "collateral_usd": 729.1794,
             "status": "Active (1)",
             "pending_orders": 0,
             "last_updated": time.time(),
@@ -587,7 +587,11 @@ class LighterTelegramBot:
         raw = text.strip().lower()
         collat = self.cached_collateral
         key_idx = os.getenv("LIGHTER_API_KEY_INDEX", "5")
-        mode = "⚡ LIVE TRADING (zkLighter)" if not self.ctx.get("is_paper_mode", False) else "🧪 PAPER TRADING"
+        if "bot" in self.ctx and hasattr(self.ctx["bot"], "is_live"):
+            is_live = self.ctx["bot"].is_live
+        else:
+            is_live = os.getenv("LIGHTER_LIVE", "true").lower() in ("true", "1", "yes") and os.getenv("NEWS_PAPER_MODE", "false").lower() not in ("true", "1", "yes") and not self.ctx.get("is_paper_mode", False)
+        mode = "⚡ LIVE TRADING (zkLighter)" if is_live else "🧪 PAPER TRADING"
         executor = self.ctx.get("executor")
 
         # -------------------------------------------------------------
@@ -708,13 +712,14 @@ class LighterTelegramBot:
             return help_msg, self.build_main_keyboard()
 
         elif raw in ["/start", "/menu", "menu"]:
+            c_usd = float(collat.get("collateral_usd", 729.1794))
             msg = (
                 f"🤖 <b>Lighter Universal Everything-Trader Panel</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🟢 <b>Status:</b> 24/7 Active & Monitoring 225+ Markets\n"
                 f"⚡ <b>Mode:</b> {mode}\n"
                 f"🏦 <b>Account:</b> #{collat['account_index']} (API Key #{key_idx})\n"
-                f"💰 <b>Collateral:</b> <code>5.5208 USDC</code> ($5.52 USD)\n"
+                f"💰 <b>Collateral:</b> <code>{c_usd:.4f} USDC</code> (${c_usd:,.2f} USD)\n"
                 f"🎯 <b>Take-Profit:</b> <code>+{self.tp_pct}%</code> | <b>Stop-Loss:</b> <code>-{self.sl_pct}%</code>\n\n"
                 f"💡 <i>Type <code>/help</code> or <code>/list</code> to view all commands, or type any ticker to trade!</i>"
             )
@@ -722,12 +727,13 @@ class LighterTelegramBot:
 
         elif raw in ["/balance", "menu_balance"]:
             wallet = os.getenv("WALLET_ADDRESS", "0x5cE95F8F7594c082549B34A32c26f4bf2F1bcFe9")
+            c_usd = float(collat.get("collateral_usd", 729.1794))
             msg = (
                 f"💳 <b>REAL zkLighter Account Balance</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🏦 <b>Account Index:</b> #{collat['account_index']}\n"
                 f"🔑 <b>API Key Index:</b> #{key_idx}\n"
-                f"💰 <b>Collateral:</b> <code>{collat['collateral_usd']:.4f} USDC</code> ($5.52 USD)\n"
+                f"💰 <b>Collateral:</b> <code>{c_usd:.4f} USDC</code> (${c_usd:,.2f} USD)\n"
                 f"📊 <b>Sub-Account Status:</b> {collat['status']}\n"
                 f"📥 <b>Pending Orders:</b> {collat['pending_orders']}\n"
                 f"👛 <b>Wallet:</b> <code>{wallet[:8]}...{wallet[-6:]}</code>"
@@ -735,14 +741,16 @@ class LighterTelegramBot:
             return msg, self.build_main_keyboard()
 
         elif raw in ["/status", "menu_status"]:
+            c_usd = float(collat.get("collateral_usd", 729.1794))
+            max_margin = c_usd * 0.85
             msg = (
                 f"📊 <b>Lighter Bot Live Status</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🟢 <b>State:</b> Active & Monitoring 24/7\n"
                 f"⚡ <b>Mode:</b> {mode}\n"
                 f"🏦 <b>Account:</b> #{collat['account_index']}\n"
-                f"💰 <b>Real Collateral:</b> <code>{collat['collateral_usd']:.4f} USDC</code> ($5.52 USD)\n"
-                f"🎯 <b>Max-Size Margin Cap:</b> 85% (~$4.69 USD)\n"
+                f"💰 <b>Real Collateral:</b> <code>{c_usd:.4f} USDC</code> (${c_usd:,.2f} USD)\n"
+                f"🎯 <b>Max-Size Margin Cap:</b> 85% (~${max_margin:,.2f} USD)\n"
                 f"🌐 <b>Market Coverage:</b> 225+ Assets (Crypto, Equities, Gold, FX, Indices)\n"
                 f"📡 <b>Radar:</b> TreeNews + Bloomberg + SEC + X Streams"
             )
