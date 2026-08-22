@@ -157,21 +157,36 @@ def tg_send(text: str, reply_markup: Optional[dict] = None) -> bool:
         return True  # Silently suppress duplicate news without erroring
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
 
-    try:
-        resp = tg_session.post(url, json=payload, timeout=3.0)
-        return resp.status_code == 200
-    except Exception as e:
-        logger.debug(f"[TG] tg_send error: {e}")
-        return False
+    # Split text into chunks if > 4000 chars to avoid Telegram 4096 char limit
+    chunks = [text[i:i + 3900] for i in range(0, max(1, len(text)), 3900)]
+    success = True
+
+    for idx, chunk in enumerate(chunks):
+        payload = {
+            "chat_id": chat_id,
+            "text": chunk,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        # Only attach reply_markup to the final chunk
+        if idx == len(chunks) - 1 and reply_markup:
+            payload["reply_markup"] = reply_markup
+
+        try:
+            resp = tg_session.post(url, json=payload, timeout=2.5)
+            if resp.status_code != 200:
+                # Fallback to plain text if HTML format error
+                payload.pop("parse_mode", None)
+                payload["text"] = re.sub(r"<[^>]+>", "", chunk)
+                resp = tg_session.post(url, json=payload, timeout=2.5)
+            if resp.status_code != 200:
+                success = False
+        except Exception as e:
+            logger.debug(f"[TG] tg_send error: {e}")
+            success = False
+
+    return success
 
 
 def tg_send_photo(
@@ -1034,6 +1049,16 @@ class LighterTelegramBot:
                 user_id = u["message"]["from"]["id"]
                 text = u["message"]["text"]
 
+                # Send instantaneous typing action (< 20ms) so user gets immediate visual response
+                try:
+                    await session.post(
+                        f"https://api.telegram.org/bot{self.token}/sendChatAction",
+                        json={"chat_id": chat_id, "action": "typing"},
+                        timeout=aiohttp.ClientTimeout(total=1.0),
+                    )
+                except Exception:
+                    pass
+
                 reply_text, keyboard = await self.handle_user_action(text, user_id)
                 payload = {
                     "chat_id": chat_id,
@@ -1044,11 +1069,20 @@ class LighterTelegramBot:
                 if keyboard:
                     payload["reply_markup"] = keyboard
 
-                await session.post(
+                async with session.post(
                     f"https://api.telegram.org/bot{self.token}/sendMessage",
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=2.0),
-                )
+                    timeout=aiohttp.ClientTimeout(total=2.5),
+                ) as resp:
+                    if resp.status != 200:
+                        # Auto-retry with stripped plain text
+                        payload.pop("parse_mode", None)
+                        payload["text"] = re.sub(r"<[^>]+>", "", reply_text)
+                        await session.post(
+                            f"https://api.telegram.org/bot{self.token}/sendMessage",
+                            json=payload,
+                            timeout=aiohttp.ClientTimeout(total=2.0),
+                        )
 
             elif "message" in u and "voice" in u["message"]:
                 chat_id = u["message"]["chat"]["id"]
@@ -1075,11 +1109,15 @@ class LighterTelegramBot:
                 user_id = cq["from"]["id"]
                 data_action = cq.get("data", "")
 
-                await session.post(
-                    f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
-                    json={"callback_query_id": cq_id},
-                    timeout=aiohttp.ClientTimeout(total=1.5),
-                )
+                # Instantly answer callback query (< 10ms) so button stops spinning
+                try:
+                    await session.post(
+                        f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
+                        json={"callback_query_id": cq_id},
+                        timeout=aiohttp.ClientTimeout(total=1.0),
+                    )
+                except Exception:
+                    pass
 
                 reply_text, keyboard = await self.handle_user_action(data_action, user_id)
                 edit_payload = {
@@ -1092,11 +1130,20 @@ class LighterTelegramBot:
                 if keyboard:
                     edit_payload["reply_markup"] = keyboard
 
-                await session.post(
+                async with session.post(
                     f"https://api.telegram.org/bot{self.token}/editMessageText",
                     json=edit_payload,
-                    timeout=aiohttp.ClientTimeout(total=2.0),
-                )
+                    timeout=aiohttp.ClientTimeout(total=2.5),
+                ) as resp:
+                    if resp.status != 200:
+                        # Auto-retry with stripped plain text
+                        edit_payload.pop("parse_mode", None)
+                        edit_payload["text"] = re.sub(r"<[^>]+>", "", reply_text)
+                        await session.post(
+                            f"https://api.telegram.org/bot{self.token}/editMessageText",
+                            json=edit_payload,
+                            timeout=aiohttp.ClientTimeout(total=2.0),
+                        )
         except Exception as e:
             logger.debug(f"[Update Handler Error]: {e}")
 
