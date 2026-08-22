@@ -590,9 +590,42 @@ class LighterTelegramBot:
             )
 
         # -------------------------------------------------------------
-        # 3. STATUS & DASHBOARD
+        # 3. STATUS, HELP & COMMAND DIRECTORY
         # -------------------------------------------------------------
-        elif raw in ["/start", "/menu", "/help"]:
+        elif raw in ["/help", "/list", "/commands", "help", "list", "commands", "menu_help"]:
+            help_msg = (
+                f"📖 <b>COMPLETE LIGHTER BOT COMMAND DIRECTORY</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⚡ <b>QUICK TRADE EXECUTION:</b>\n"
+                f"• <code>&lt;ticker&gt;</code> (e.g. <code>eth</code>, <code>btc</code>, <code>sol</code>, <code>trump</code>) — Instant Max-Size Long\n"
+                f"• <code>short &lt;ticker&gt;</code> (e.g. <code>short sol</code>, <code>sell eth</code>) — Instant Max-Size Short\n"
+                f"• <code>snipe $100 long &lt;ticker&gt;</code> — Natural Language custom snipe\n"
+                f"• <code>/close</code> or <code>close</code> — Flatten & Close All Positions at Market\n"
+                f"• <code>/evacuate</code> — Emergency Panic Flatten & Cancel All Orders\n\n"
+                f"🎯 <b>POSITION & RISK CONTROLS:</b>\n"
+                f"• <code>/positions</code> or <code>/pos</code> — Open positions + 1-Tap Control Buttons\n"
+                f"• <code>/be &lt;asset&gt;</code> (or <code>breakeven sol</code>) — Move SL to Entry (+0.1%)\n"
+                f"• <code>/close50 &lt;asset&gt;</code> (or <code>close 50% eth</code>) — Bank 50% Profit\n"
+                f"• <code>/tp &lt;pct&gt;</code> (e.g. <code>/tp 3.5</code>) — Set Take-Profit Target\n"
+                f"• <code>/sl &lt;pct&gt;</code> (e.g. <code>/sl 1.5</code>) — Set Stop-Loss Guard\n\n"
+                f"📊 <b>ANALYTICS & PORTFOLIO:</b>\n"
+                f"• <code>/report</code> or <code>/pnl</code> — 24h Realized PnL, Win-Rate & Volume\n"
+                f"• <code>/balance</code> — Real zkLighter Subaccount Balances\n"
+                f"• <code>/status</code> — Live Engine State & System Vitality\n"
+                f"• <code>/chart &lt;ticker&gt;</code> (e.g. <code>/chart sol</code>) — Visual Target Chart Card\n"
+                f"• <code>/miniapp</code> — Open Web Trading Mini-App Interface\n\n"
+                f"👑 <b>INSTITUTIONAL STRATEGIES:</b>\n"
+                f"• <code>/orchestrator</code> — Master Multi-Strategy Telemetry\n"
+                f"• <code>/subaccounts</code> — Shard Allocation (Sniper, MM, Treasury)\n"
+                f"• <code>/rebalance</code> — Auto-Mesh Collateral Transfer Planner\n"
+                f"• <code>/grid</code> — 0-Fee 5-Market MM Quoter Status\n"
+                f"• <code>/harvest</code> — Autonomous Profit Sweeper Vault Status\n"
+                f"• <code>/sources</code> — Active 600+ Low-Latency News Feeds\n\n"
+                f"💡 <i>Tip: You can type natural text like 'buy $50 SOL' or tap any button below!</i>"
+            )
+            return help_msg, self.build_main_keyboard()
+
+        elif raw in ["/start", "/menu", "menu"]:
             msg = (
                 f"🤖 <b>Lighter Universal Everything-Trader Panel</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -601,7 +634,7 @@ class LighterTelegramBot:
                 f"🏦 <b>Account:</b> #{collat['account_index']} (API Key #{key_idx})\n"
                 f"💰 <b>Collateral:</b> <code>5.5208 USDC</code> ($5.52 USD)\n"
                 f"🎯 <b>Take-Profit:</b> <code>+{self.tp_pct}%</code> | <b>Stop-Loss:</b> <code>-{self.sl_pct}%</code>\n\n"
-                f"💡 <i>Type ANY ticker (e.g. <b>nvda</b>, <b>tsla</b>, <b>gold</b>, <b>btc</b>, <b>sol</b>, <b>spy</b>) for instant Max-Size execution!</i>"
+                f"💡 <i>Type <code>/help</code> or <code>/list</code> to view all commands, or type any ticker to trade!</i>"
             )
             return msg, self.build_main_keyboard()
 

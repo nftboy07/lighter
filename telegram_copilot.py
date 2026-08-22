@@ -406,6 +406,15 @@ class TelegramAICopilot:
                 explanation="Check live bot system health and network connections",
             )
 
+        # Help & Command Directory: "help", "list", "commands", "/help", "/list", "/commands", "what can you do"
+        if any(p in clean_norm for p in ["what can you do", "show commands", "command list", "how to use", "commands", "directory"]) or clean_norm in ["help", "list", "commands", "/help", "/list", "/commands"]:
+            return ParsedCommand(
+                intent=CopilotIntentType.HELP,
+                raw_text=raw,
+                confidence=1.0,
+                explanation="Display complete command directory and interactive guide",
+            )
+
         # -------------------------------------------------------------
         # 8. SNIPE & TRADING EXECUTION (Natural Language Orders)
         # -------------------------------------------------------------
@@ -825,12 +834,45 @@ class TelegramAICopilot:
         if cmd.intent == CopilotIntentType.RESUME_BOT:
             return "▶️ <b>Bot Resumed</b> — 24/7 Universal Catalyst Sniper & MM Active!", (fallback_keyboard_builder() if fallback_keyboard_builder else None)
 
+        if cmd.intent == CopilotIntentType.HELP:
+            help_msg = (
+                "📖 <b>COMPLETE LIGHTER BOT COMMAND DIRECTORY</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "⚡ <b>QUICK TRADE EXECUTION:</b>\n"
+                "• <code>&lt;ticker&gt;</code> (e.g. <code>eth</code>, <code>btc</code>, <code>sol</code>, <code>trump</code>) — Instant Max-Size Long\n"
+                "• <code>short &lt;ticker&gt;</code> (e.g. <code>short sol</code>, <code>sell eth</code>) — Instant Max-Size Short\n"
+                "• <code>snipe $100 long &lt;ticker&gt;</code> — Natural Language custom snipe\n"
+                "• <code>/close</code> or <code>close</code> — Flatten & Close All Positions at Market\n"
+                "• <code>/evacuate</code> — Emergency Panic Flatten & Cancel All Orders\n\n"
+                "🎯 <b>POSITION & RISK CONTROLS:</b>\n"
+                "• <code>/positions</code> or <code>/pos</code> — Open positions + 1-Tap Control Buttons\n"
+                "• <code>/be &lt;asset&gt;</code> (or <code>breakeven sol</code>) — Move SL to Entry (+0.1%)\n"
+                "• <code>/close50 &lt;asset&gt;</code> (or <code>close 50% eth</code>) — Bank 50% Profit\n"
+                "• <code>/tp &lt;pct&gt;</code> (e.g. <code>/tp 3.5</code>) — Set Take-Profit Target\n"
+                "• <code>/sl &lt;pct&gt;</code> (e.g. <code>/sl 1.5</code>) — Set Stop-Loss Guard\n\n"
+                "📊 <b>ANALYTICS & PORTFOLIO:</b>\n"
+                "• <code>/report</code> or <code>/pnl</code> — 24h Realized PnL, Win-Rate & Volume\n"
+                "• <code>/balance</code> — Real zkLighter Subaccount Balances\n"
+                "• <code>/status</code> — Live Engine State & System Vitality\n"
+                "• <code>/chart &lt;ticker&gt;</code> (e.g. <code>/chart sol</code>) — Visual Target Chart Card\n"
+                "• <code>/miniapp</code> — Open Web Trading Mini-App Interface\n\n"
+                "👑 <b>INSTITUTIONAL STRATEGIES:</b>\n"
+                "• <code>/orchestrator</code> — Master Multi-Strategy Telemetry\n"
+                "• <code>/subaccounts</code> — Shard Allocation (Sniper, MM, Treasury)\n"
+                "• <code>/rebalance</code> — Auto-Mesh Collateral Transfer Planner\n"
+                "• <code>/grid</code> — 0-Fee 5-Market MM Quoter Status\n"
+                "• <code>/harvest</code> — Autonomous Profit Sweeper Vault Status\n"
+                "• <code>/sources</code> — Active 600+ Low-Latency News Feeds\n\n"
+                "💡 <i>Tip: You can type natural text like 'buy $50 SOL' or tap any button below!</i>"
+            )
+            return help_msg, (fallback_keyboard_builder() if fallback_keyboard_builder else None)
+
         # Fallback for unrecognized intent
         return (
             f"🤖 <b>Copilot Parser Ready</b>\n"
             f"• Intent: <i>{cmd.intent.value}</i>\n"
             f"• Text: <code>{cmd.raw_text}</code>\n"
-            f"💡 Type <code>/help</code> or tap a button below:",
+            f"💡 Type <code>/help</code> or <code>/list</code> to view all commands:",
             (fallback_keyboard_builder() if fallback_keyboard_builder else None),
         )
 
