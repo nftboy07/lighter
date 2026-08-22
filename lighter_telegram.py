@@ -78,7 +78,11 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Outbound HTTP Session with Connection Pooling
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 tg_session = requests.Session()
+tg_session.verify = False
 tg_session.headers.update({
     "Connection": "keep-alive",
     "User-Agent": "Lighter-Universal-Bot/1.0",
@@ -1345,7 +1349,7 @@ class LighterTelegramBot:
         offset = 0
         logger.info("⚡ [TG] Ultra-Fast Zero-Lag Telegram Poller started.")
 
-        connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=60, ttl_dns_cache=300)
+        connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=60, ttl_dns_cache=300, ssl=False)
         async with aiohttp.ClientSession(connector=connector) as session:
             asyncio.create_task(self._balance_cache_worker(session))
             asyncio.create_task(self._daily_report_worker(session))
