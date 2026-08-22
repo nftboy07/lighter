@@ -1349,20 +1349,22 @@ class LighterTelegramBot:
         offset = 0
         logger.info("⚡ [TG] Ultra-Fast Zero-Lag Telegram Poller started.")
 
-        connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=60, ttl_dns_cache=300, ssl=False)
+        import ssl
+        unverified_ssl = ssl._create_unverified_context()
+        connector = aiohttp.TCPConnector(limit=100, keepalive_timeout=60, ttl_dns_cache=300, ssl=unverified_ssl)
         async with aiohttp.ClientSession(connector=connector) as session:
             asyncio.create_task(self._balance_cache_worker(session))
             asyncio.create_task(self._daily_report_worker(session))
 
             try:
-                await session.post(f"https://api.telegram.org/bot{self.token}/deleteWebhook")
+                await session.post(f"https://api.telegram.org/bot{self.token}/deleteWebhook", ssl=unverified_ssl)
             except Exception:
                 pass
 
             while self.is_running:
                 try:
                     url = f"https://api.telegram.org/bot{self.token}/getUpdates?offset={offset}&timeout=10"
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=15.0)) as resp:
+                    async with session.get(url, ssl=unverified_ssl, timeout=aiohttp.ClientTimeout(total=15.0)) as resp:
                         if resp.status == 200:
                             data = await resp.json()
                             updates = data.get("result", [])
