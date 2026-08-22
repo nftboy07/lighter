@@ -1162,6 +1162,27 @@ class LighterTelegramBot:
                 return msg, self.build_main_keyboard()
             return "⚖️ <b>Rebalance</b>: Subaccount manager not initialized.", self.build_main_keyboard()
 
+        elif raw in ["/funding", "funding", "menu_funding", "/rates", "rates"]:
+            try:
+                from funding_arbitrage import FundingArbitrageScanner
+                scanner = FundingArbitrageScanner()
+                rates = await scanner.fetch_live_rates()
+                msg = scanner.format_funding_heatmap_html(rates)
+            except Exception as e:
+                msg = f"⚠️ <b>Funding Heatmap</b>: Unable to fetch live rates ({e})."
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": "🔄 Refresh Heatmap", "callback_data": "menu_funding"},
+                        {"text": "🏦 Shards", "callback_data": "menu_subaccounts"},
+                    ],
+                    [
+                        {"text": "🏠 Main Menu", "callback_data": "/menu"},
+                    ],
+                ]
+            }
+            return msg, keyboard
+
         elif raw in ["/orchestrator", "orchestrator", "menu_orchestrator"]:
             orch = self.ctx.get("master_orchestrator")
             if not orch and MasterProfitOrchestrator:
