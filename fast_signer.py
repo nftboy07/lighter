@@ -331,17 +331,17 @@ class FastZkLighterSigner:
 
         # Fast binary serialization for signature hash
         msg_bytes = struct.pack(
-            "!QQIIQQ????",
+            "!QQIIQQBBBQ",
             self.account_index,
             self.api_key_index,
             market_index,
             order_id,
             scaled_size,
             scaled_price,
-            is_ask,
-            bool(order_type),
-            bool(time_in_force),
-            bool(use_nonce),
+            1 if is_ask else 0,
+            int(order_type),
+            int(time_in_force),
+            int(use_nonce),
         )
 
         signature, tx_hash = self._compute_fast_signature(msg_bytes)

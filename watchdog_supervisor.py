@@ -27,11 +27,13 @@ if hasattr(sys.stderr, "reconfigure"):
 LOG_DIR = "C:/LighterBot" if os.path.exists("C:/LighterBot") else "."
 LOG_FILE = os.path.join(LOG_DIR, "watchdog_supervisor.log")
 
+from logging.handlers import RotatingFileHandler
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [WatchdogSupervisor] %(message)s",
     handlers=[
-        logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8"),
+        RotatingFileHandler(LOG_FILE, maxBytes=25_000_000, backupCount=3, encoding="utf-8"),
         logging.StreamHandler(sys.stdout),
     ],
 )

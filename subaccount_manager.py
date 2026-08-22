@@ -148,6 +148,8 @@ class SubaccountManager:
         self.base_url = (base_url or os.getenv("LIGHTER_BASE_URL") or "https://mainnet.zklighter.elliot.ai").rstrip("/")
         self.wallet_address = (wallet_address or os.getenv("WALLET_ADDRESS") or "0x5cE95F8F7594c082549B34A32c26f4bf2F1bcFe9").strip()
 
+        self.default_api_key_index = int(os.getenv("LIGHTER_API_KEY_INDEX", "5"))
+
         # Load subaccount profiles or construct institutional defaults
         self.profiles: Dict[SubaccountRole, SubaccountProfile] = {}
         self.states: Dict[int, SubaccountState] = {}

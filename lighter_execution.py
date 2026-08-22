@@ -505,14 +505,24 @@ class LighterExecutionEngine:
         vwap_price = vwap_meta.get("vwap_price") or price
         slippage_bps = vwap_meta.get("expected_slippage_bps", 0.0)
 
+        # Enforce executable USD size and verify slippage cap
+        exec_usd = vwap_meta.get("executable_usd", usd_value)
+        if exec_usd <= 0 or slippage_bps > max_slippage_bps:
+            logger.warning(f"[VWAP] Slippage cap exceeded ({slippage_bps:.1f} bps > {max_slippage_bps} bps)")
+            return {"success": False, "error": f"Slippage cap exceeded ({slippage_bps:.1f} bps > {max_slippage_bps} bps)"}
+
+        safe_size = size if orderbook is None else min(size, max(0.0, exec_usd / price))
+        worst_price = vwap_price * (1.0 + (max_slippage_bps / 10000.0)) if side == OrderSide.BUY else vwap_price * (1.0 - (max_slippage_bps / 10000.0))
+        exec_price = worst_price if worst_price > 0 else price
+
         if self.is_paper_mode:
-            realized_pnl = self.simulator._execute_fill(side, price, size)
+            realized_pnl = self.simulator._execute_fill(side, price, safe_size)
             sim_order = ActiveOrder(
                 client_order_id=client_id,
                 order_id=f"taker_{client_id}",
                 side=side,
                 price=price,
-                size=size,
+                size=safe_size,
                 layer=-1,
                 timestamp=time.time(),
                 is_simulated=True,
@@ -520,7 +530,7 @@ class LighterExecutionEngine:
             if self.on_fill_callback:
                 self.on_fill_callback(
                     order=sim_order,
-                    fill_qty=size,
+                    fill_qty=safe_size,
                     fill_price=price,
                     realized_pnl=realized_pnl,
                     is_maker=False,
@@ -532,8 +542,8 @@ class LighterExecutionEngine:
                 "side": side.value,
                 "price": price,
                 "vwap_price": vwap_price,
-                "size": size,
-                "usd_value": usd_value,
+                "size": safe_size,
+                "usd_value": exec_usd,
                 "expected_slippage_bps": slippage_bps,
                 "depth_exhausted": vwap_meta.get("depth_exhausted", False),
                 "realized_pnl": realized_pnl,
@@ -545,8 +555,8 @@ class LighterExecutionEngine:
         await self._ensure_signer()
         if self.signer_client:
             try:
-                price_int = self.scale_price_to_int(price)
-                size_int = self.scale_size_to_int(size)
+                price_int = self.scale_price_to_int(exec_price)
+                size_int = self.scale_size_to_int(safe_size)
                 order_type = getattr(self.signer_client, "ORDER_TYPE_MARKET", 1)
                 time_in_force = getattr(self.signer_client, "ORDER_TIME_IN_FORCE_IOC", 1)
 
