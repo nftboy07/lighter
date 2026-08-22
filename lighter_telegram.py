@@ -172,12 +172,21 @@ _NOTIFICATION_WORKER_LOCK = threading.Lock()
 
 
 def _notification_worker_loop():
-    """Isolated daemon worker thread processing Telegram notifications."""
+    """Isolated daemon worker thread processing Telegram notifications with auto-queue flushing."""
     while True:
         try:
             item = _NOTIFICATION_QUEUE.get()
             if item is None:
                 break
+            # Auto-drain oldest notifications if queue builds up (e.g. during network disconnect)
+            if _NOTIFICATION_QUEUE.qsize() > 80:
+                logger.warning("🧹 [TG Auto-Clean] Outbound queue backlog high (%d). Auto-draining oldest notifications.", _NOTIFICATION_QUEUE.qsize())
+                while _NOTIFICATION_QUEUE.qsize() > 20:
+                    try:
+                        _NOTIFICATION_QUEUE.get_nowait()
+                        _NOTIFICATION_QUEUE.task_done()
+                    except Exception:
+                        break
             text, reply_markup = item
             _send_raw_telegram_message(text, reply_markup)
             _NOTIFICATION_QUEUE.task_done()
@@ -1199,6 +1208,12 @@ class LighterTelegramBot:
 
     async def _handle_update(self, u: dict, session: aiohttp.ClientSession):
         try:
+            # Auto-Clean: Discard stale messages older than 5 minutes (e.g. from downtime/restarts)
+            msg_date = u.get("message", {}).get("date") or u.get("callback_query", {}).get("message", {}).get("date", 0)
+            if msg_date and (time.time() - msg_date > 300):
+                logger.info("🧹 [TG Auto-Clean] Discarded stale message from %ds ago.", int(time.time() - msg_date))
+                return
+
             if "message" in u and "text" in u["message"]:
                 chat_id = u["message"]["chat"]["id"]
                 user_id = u["message"]["from"]["id"]
@@ -1357,9 +1372,25 @@ class LighterTelegramBot:
             asyncio.create_task(self._daily_report_worker(session))
 
             try:
-                await session.post(f"https://api.telegram.org/bot{self.token}/deleteWebhook", ssl=unverified_ssl)
-            except Exception:
-                pass
+                await session.post(
+                    f"https://api.telegram.org/bot{self.token}/deleteWebhook",
+                    json={"drop_pending_updates": True},
+                    ssl=unverified_ssl,
+                    timeout=aiohttp.ClientTimeout(total=3.0),
+                )
+                async with session.get(
+                    f"https://api.telegram.org/bot{self.token}/getUpdates?offset=-1",
+                    ssl=unverified_ssl,
+                    timeout=aiohttp.ClientTimeout(total=4.0),
+                ) as init_resp:
+                    if init_resp.status == 200:
+                        init_data = await init_resp.json()
+                        init_res = init_data.get("result", [])
+                        if init_res:
+                            offset = init_res[-1]["update_id"] + 1
+                            logger.info("🧹 [TG Auto-Clean] Cleared stale backlog. Starting fresh from update_id %d.", offset)
+            except Exception as e:
+                logger.debug(f"[TG Queue Clean Init]: {e}")
 
             while self.is_running:
                 try:
