@@ -114,23 +114,28 @@ _SENT_MESSAGES_HISTORY: deque = deque(maxlen=200)
 _SENT_LOCK = threading.Lock()
 
 
-def is_duplicate_telegram_message(text: str, window_seconds: float = 3600.0) -> bool:
+def is_duplicate_telegram_message(text: str, window_seconds: float = 1800.0) -> bool:
     """
-    Checks if a news alert or execution message is a duplicate/rephrased version
-    of a message already sent to Telegram within the last 60 minutes.
+    Checks if an outbound message or trade card is an exact duplicate of a recently sent message.
     """
-    # Exclude system reports, menus, and on-demand commands from deduplication
-    if any(k in text for k in ["LIGHTER BOT:", "DAILY REPORT", "ACTIVE POSITIONS", "ORCHESTRATOR", "STATUS"]):
+    # Exclude system reports, menus, on-demand commands, and news radar from aggressive deduplication
+    if any(k in text for k in ["LIGHTER BOT:", "DAILY REPORT", "ACTIVE POSITIONS", "ORCHESTRATOR", "STATUS", "BALANCE", "BREAKING NEWS RADAR", "UNIVERSAL MAX-SIZE"]):
+        # Only deduplicate if exact text was sent in last 60 seconds
+        now = time.time()
+        with _SENT_LOCK:
+            for _, cached_text, ts in list(_SENT_MESSAGES_HISTORY):
+                if now - ts <= 60.0 and cached_text == text[:150]:
+                    return True
+            _SENT_MESSAGES_HISTORY.append((set(), text[:150], now))
         return False
 
-    # Extract alphanumeric tokens and apply 4-char prefix stemming
+    # Extract alphanumeric tokens, filtering common boilerplate stop-words
     clean = re.sub(r"<[^>]+>", " ", text).lower()
     raw_tokens = re.findall(r"\b[a-z0-9]{3,}\b", clean)
-    if len(raw_tokens) < 3:
+    stop_words = {"break", "breaking", "news", "radar", "convic", "bullish", "bearish", "alert", "trade", "lighter", "usd", "market"}
+    tokens = {t[:5] for t in raw_tokens if t[:5] not in stop_words and len(t) >= 4}
+    if len(tokens) < 3:
         return False
-
-    # Stem tokens (e.g. approves -> approv, approved -> approv)
-    tokens = {t[:5] for t in raw_tokens}
 
     now = time.time()
     with _SENT_LOCK:
@@ -138,24 +143,18 @@ def is_duplicate_telegram_message(text: str, window_seconds: float = 3600.0) -> 
             if now - ts > window_seconds:
                 continue
 
-            # 1. Stemmed Token Overlap
+            # 1. Stemmed Token Overlap (at least 5 unique non-template words)
             common = tokens & cached_tokens
-            if len(common) >= 3:
-                logger.info("🚫 [TG Anti-Spam] Dropped duplicate news headline (Shared stems: %s): %s", common, clean[:80])
-                return True
-
-            # 2. Jaccard overlap
-            union = tokens | cached_tokens
-            if union:
-                jaccard = len(common) / len(union)
-                if jaccard >= 0.35:
-                    logger.info("🚫 [TG Anti-Spam] Dropped duplicate news headline (Jaccard: %.2f): %s", jaccard, clean[:80])
+            if len(common) >= 5:
+                union = tokens | cached_tokens
+                if union and (len(common) / len(union)) >= 0.70:
+                    logger.info("🚫 [TG Anti-Spam] Dropped duplicate news headline (Shared stems: %s)", common)
                     return True
 
-            # 3. String Sequence Matcher
+            # 2. String Sequence Matcher on raw body
             sim = SequenceMatcher(None, clean[:120], cached_text[:120]).ratio()
-            if sim >= 0.55:
-                logger.info("🚫 [TG Anti-Spam] Dropped duplicate news headline (Similarity: %.2f): %s", sim, clean[:80])
+            if sim >= 0.85:
+                logger.info("🚫 [TG Anti-Spam] Dropped duplicate news headline (Similarity: %.2f)", sim)
                 return True
 
         # Not a duplicate -> record in history
