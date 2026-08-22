@@ -15,7 +15,7 @@ from news_universe import (
 TRADEABLE_TYPES = frozenset({
     "listing", "delisting", "exploit", "approval", "rejection", "outage",
     "earnings", "macro", "regulatory", "opec", "sanction", "distress",
-    "partnership", "breakout", "surge", "tariff",
+    "partnership", "breakout", "surge", "breakdown", "tariff",
     "upgrade", "mainnet", "etf", "whale", "momentum", "general_crypto", "defi", "layer1",
 })
 REGULATOR_SOLO = frozenset({"regulator"})
