@@ -2469,11 +2469,12 @@ class LighterNewsSniperBot:
         for book in list(self.positions.active()):
             reason = "adopted_live" if book.asset.upper() in exch_syms else "already_flat"
             self.positions.mark_exit(book.position_id, reason, book.entry_price, True)
-        try:
-            from lighter_telegram import tg_send
-            tg_send(f"🔁 <b>Reconcile</b> found {len(found)} exchange position(s). flatten={flatten}")
-        except Exception:
-            pass
+        if len(found) > 0 or flatten:
+            try:
+                from lighter_telegram import tg_send
+                tg_send(f"🔁 <b>Reconcile</b> found {len(found)} exchange position(s). flatten={flatten}")
+            except Exception:
+                pass
 
     async def sync_lighter_universe(self, notify: bool = True) -> Dict[str, Any]:
         """Refresh Lighter markets, alias new tickers, attach ticker Google News feeds."""
