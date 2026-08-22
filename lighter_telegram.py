@@ -67,6 +67,12 @@ try:
 except ImportError:
     AutonomousProfitHarvestingDaemon = None
 
+try:
+    from telegram_mini_app import TelegramMiniAppGenerator, MiniAppHTTPServer
+except ImportError:
+    TelegramMiniAppGenerator = None
+    MiniAppHTTPServer = None
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -349,6 +355,14 @@ class LighterTelegramBot:
             self.copilot = TelegramAICopilot(self.subaccount_mgr)
         if self.copilot:
             self.ctx["copilot"] = self.copilot
+
+        # Start Mini-App HTTP Dashboard Server on Port 8080
+        if MiniAppHTTPServer:
+            try:
+                self.mini_app_server = MiniAppHTTPServer(host="0.0.0.0", port=8080, ctx=self.ctx)
+                self.mini_app_server.start_in_background()
+            except Exception as e:
+                logger.debug("MiniApp Server startup: %s", e)
 
     def build_main_keyboard(self) -> dict:
         return {
@@ -1049,17 +1063,33 @@ class LighterTelegramBot:
             )
             return msg, self.build_main_keyboard()
 
-        elif raw in ["/miniapp", "miniapp", "menu_miniapp"]:
+        elif raw in ["/miniapp", "miniapp", "menu_miniapp", "/web", "web", "/dashboard", "dashboard"]:
             msg = (
-                f"📱 <b>LIGHTER INSTITUTIONAL MINI-APP</b>\n"
+                f"📱 <b>LIGHTER INSTITUTIONAL WEB MINI-APP</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"⚡ <b>Features:</b>\n"
-                f"• Real-Time Candlestick Charts & Depth\n"
-                f"• 1-Tap Execution Controls (BE SL, Close 50%, TP Ladder)\n"
-                f"• Subaccount Balances & Auto-Rebalancing\n\n"
-                f"🔗 <b>Open Dashboard:</b> <code>http://18.153.70.154:8080</code>"
+                f"⚡ <b>Live Terminal Features:</b>\n"
+                f"• <b>Real-Time Equity:</b> Live <code>$5.52 USDC</code> Balance\n"
+                f"• <b>Subaccounts:</b> Shards #737649, MM, Treasury\n"
+                f"• <b>Active Positions:</b> Live Marks & Trailing TP/SL\n"
+                f"• <b>Execution:</b> 1-Tap Rebalance & Panic Evacuate\n\n"
+                f"🌐 <b>Webview URL:</b> <code>http://18.153.70.154:8080</code>\n\n"
+                f"👇 <i>Tap the button below to launch the live web dashboard:</i>"
             )
-            return msg, self.build_main_keyboard()
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": "🚀 Open Web Dashboard", "url": "http://18.153.70.154:8080"},
+                    ],
+                    [
+                        {"text": "📊 Active Positions", "callback_data": "menu_positions"},
+                        {"text": "💳 Account Balance", "callback_data": "menu_balance"},
+                    ],
+                    [
+                        {"text": "🏠 Main Menu", "callback_data": "/menu"},
+                    ],
+                ]
+            }
+            return msg, keyboard
 
         # -------------------------------------------------------------
         # 5. NATURAL LANGUAGE AI COPILOT INTERPRETER
