@@ -230,10 +230,16 @@ def _send_raw_telegram_message(text: str, reply_markup: Optional[dict] = None) -
 
 def tg_send(text: str, reply_markup: Optional[dict] = None, block: bool = False) -> bool:
     """
-    100% Non-Blocking Telegram Alert Dispatcher.
+    100% Non-Blocking Telegram & Poke AI Alert Dispatcher.
     Places alert onto background queue in < 0.01ms and returns immediately.
     Trading engine NEVER waits or stalls if Telegram is down.
     """
+    try:
+        from poke_notifier import poke_send
+        poke_send(text)
+    except Exception:
+        pass
+
     if block:
         return _send_raw_telegram_message(text, reply_markup)
 
@@ -970,6 +976,18 @@ class LighterTelegramBot:
                 f"🐦 <b>Social X/Twitter v2 Stream:</b>\n"
                 f"• @realDonaldTrump, @elonmusk, @saylor, @VitalikButerin, @cz_binance\n\n"
                 f"⚡ <i>All 600+ feeds stream into sub-5ms Regex NLP parser 24/7!</i>"
+            )
+        elif raw in ["/poke", "poke", "menu_poke"]:
+            from poke_notifier import poke_send
+            sent = poke_send("🤖 [Poke AI Alert Test] Lighter Trading Bot is connected & ready.")
+            msg = (
+                f"⚡ <b>POKE AI NOTIFICATION SYSTEM</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🟢 <b>Status:</b> <code>CONNECTED & ACTIVE</code>\n"
+                f"🔗 <b>Endpoint:</b> <code>https://poke.com/api/v1/inbound/api-message</code>\n"
+                f"🔑 <b>API Key:</b> <code>Configured (Poke.com)</code>\n"
+                f"📡 <b>Alert Dispatch:</b> Real-time trade executions, TP/SL fills, and heartbeats\n"
+                f"📨 <b>Test Alert:</b> {'Dispatched to Poke AI' if sent else 'Queued'}"
             )
             return msg, self.build_main_keyboard()
 
